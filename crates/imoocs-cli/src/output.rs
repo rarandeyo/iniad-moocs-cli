@@ -14,11 +14,6 @@ pub enum OutputMode {
     Ndjson,
 }
 
-impl OutputMode {
-    pub fn is_json(self) -> bool {
-        matches!(self, OutputMode::Json | OutputMode::Ndjson)
-    }
-}
 
 pub fn init_tracing(debug: bool, quiet: bool) {
     let level = if debug {

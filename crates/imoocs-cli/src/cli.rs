@@ -2,7 +2,8 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::output::{self, OutputMode};
+use crate::commands;
+use crate::output::OutputMode;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -51,35 +52,19 @@ pub struct GlobalArgs {
 pub enum Command {
     /// Show CLI version.
     Version,
-    /// Report environment diagnosis (auth / config / cache / network).
+    /// Report environment diagnosis (auth / config / cache).
     Doctor,
+    /// Authentication subcommands.
+    Auth {
+        #[command(subcommand)]
+        cmd: commands::auth::AuthCommand,
+    },
 }
 
 pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Version => {
-            let data = serde_json::json!({
-                "name": "imoocs",
-                "version": env!("CARGO_PKG_VERSION"),
-            });
-            output::emit_success::<serde_json::Value>(data, cli.global.format);
-            Ok(ExitCode::from(0))
-        }
-        Command::Doctor => {
-            use imoocs_core::paths::Paths;
-            use imoocs_core::schemas::DoctorReport;
-            let paths = Paths::discover()?;
-            let report = DoctorReport {
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                moocs_authenticated: false,
-                google_authenticated: false,
-                config_dir: paths.config_dir,
-                data_dir: paths.data_dir,
-                cache_dir: paths.cache_dir,
-                username: None,
-            };
-            output::emit_success(report, cli.global.format);
-            Ok(ExitCode::from(0))
-        }
+        Command::Version => commands::version::run(&cli.global),
+        Command::Doctor => commands::doctor::run(&cli.global).await,
+        Command::Auth { cmd } => commands::auth::run(&cli.global, cmd).await,
     }
 }

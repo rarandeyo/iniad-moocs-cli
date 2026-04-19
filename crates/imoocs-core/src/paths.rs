@@ -12,6 +12,7 @@ use crate::error::{ImoocsError, Result};
 
 const APP_NAME: &str = "imoocs";
 
+#[derive(Debug, Clone)]
 pub struct Paths {
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
@@ -27,6 +28,11 @@ impl Paths {
             data_dir: strategy.data_dir().join(APP_NAME),
             cache_dir: strategy.cache_dir().join(APP_NAME),
         })
+    }
+
+    /// Convenience: `Paths` is `Clone`, this alias makes call sites read nicely.
+    pub fn clone_paths(&self) -> Self {
+        self.clone()
     }
 
     pub fn config_file(&self) -> PathBuf {
