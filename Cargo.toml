@@ -33,6 +33,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 unicode_escape = "0.1"
 svg2pdf = "0.13"
 lopdf = "0.38"
+pdf-writer = "0.12"
 etcetera = "0.11"
 rustix = { version = "1", features = ["fs"] }
 sha1 = "0.10"

@@ -1704,6 +1704,7 @@ dependencies = [
  "lopdf",
  "mockito",
  "once_cell",
+ "pdf-writer",
  "regex",
  "reqwest",
  "reqwest_cookie_store",

@@ -77,6 +77,12 @@ pub enum Command {
         #[command(subcommand)]
         cmd: commands::assignment::AssignmentCommand,
     },
+    /// Slide subcommands (fetch).
+    #[command(visible_alias = "s")]
+    Slide {
+        #[command(subcommand)]
+        cmd: commands::slide::SlideCommand,
+    },
 }
 
 pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
@@ -87,5 +93,6 @@ pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Course { cmd } => commands::course::run(&cli.global, cmd).await,
         Command::Lesson { cmd } => commands::lesson::run(&cli.global, cmd).await,
         Command::Assignment { cmd } => commands::assignment::run(&cli.global, cmd).await,
+        Command::Slide { cmd } => commands::slide::run(&cli.global, cmd).await,
     }
 }

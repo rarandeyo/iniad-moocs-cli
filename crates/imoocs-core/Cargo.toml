@@ -26,6 +26,7 @@ tracing.workspace = true
 unicode_escape.workspace = true
 svg2pdf.workspace = true
 lopdf.workspace = true
+pdf-writer.workspace = true
 etcetera.workspace = true
 rustix.workspace = true
 sha1.workspace = true

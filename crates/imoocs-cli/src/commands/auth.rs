@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use dialoguer::{Input, Password};
 use imoocs_core::{
-    auth::{is_logged_in_moocs, login_moocs, Credentials},
+    auth::{is_logged_in_google, is_logged_in_moocs, login_google, login_moocs, Credentials},
     config::Config,
     envelope::ErrorDetail,
     keyring,
@@ -31,6 +31,8 @@ pub enum AuthCommand {
         #[arg(long)]
         password_stdin: bool,
     },
+    /// Log in to Google Workspace (SAML via INIAD SSO). Required for slide PDFs.
+    LoginGoogle,
     /// Forget stored credentials and cookies.
     Logout {
         /// Keep config.toml (only remove keyring + cookies.json).
@@ -51,6 +53,7 @@ pub enum AuthCommand {
 #[serde(rename_all = "camelCase")]
 struct AuthStatus {
     moocs_authenticated: bool,
+    google_authenticated: bool,
     username: Option<String>,
     has_stored_password: bool,
     cookies_path: std::path::PathBuf,
@@ -68,9 +71,48 @@ struct AuthExport {
 pub async fn run(global: &GlobalArgs, cmd: AuthCommand) -> Result<ExitCode> {
     match cmd {
         AuthCommand::Login { username, password_stdin } => login(global, username, password_stdin).await,
+        AuthCommand::LoginGoogle => login_google_cmd(global).await,
         AuthCommand::Logout { keep_config } => logout(global, keep_config).await,
         AuthCommand::Status => status(global).await,
         AuthCommand::Export { unmasked } => export(global, unmasked).await,
+    }
+}
+
+async fn login_google_cmd(global: &GlobalArgs) -> Result<ExitCode> {
+    let paths = Paths::discover()?;
+    let cfg = Config::load(&paths.config_file())?;
+    let Some(username) = cfg.username.clone() else {
+        let err = ImoocsError::Validation(
+            "no stored username; run `imoocs auth login` first".into(),
+        );
+        output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
+        return Ok(ExitCode::from(err.exit_code().as_u8()));
+    };
+    let Some(password) = keyring::get_password(&username)? else {
+        let err = ImoocsError::Validation(
+            "no password in keyring; run `imoocs auth login` first".into(),
+        );
+        output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
+        return Ok(ExitCode::from(err.exit_code().as_u8()));
+    };
+
+    let session = Session::new(paths.clone_paths())?;
+    let creds = Credentials {
+        username: username.clone(),
+        password,
+    };
+    match login_google(&session, &creds).await {
+        Ok(()) => {
+            output::emit_success(
+                json!({ "googleAuthenticated": true, "username": username }),
+                global.format,
+            );
+            Ok(ExitCode::from(0))
+        }
+        Err(err) => {
+            output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
+            Ok(ExitCode::from(err.exit_code().as_u8()))
+        }
     }
 }
 
@@ -166,6 +208,7 @@ async fn status(global: &GlobalArgs) -> Result<ExitCode> {
     let session = Session::new(paths.clone_paths())?;
 
     let moocs_auth = is_logged_in_moocs(&session).await.unwrap_or(false);
+    let google_auth = is_logged_in_google(&session).await.unwrap_or(false);
     let has_pw = cfg
         .username
         .as_deref()
@@ -174,6 +217,7 @@ async fn status(global: &GlobalArgs) -> Result<ExitCode> {
 
     let data = AuthStatus {
         moocs_authenticated: moocs_auth,
+        google_authenticated: google_auth,
         username: cfg.username,
         has_stored_password: has_pw,
         cookies_path: paths.cookies_file(),
