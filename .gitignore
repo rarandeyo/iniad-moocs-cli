@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+.DS_Store
+*.swp
+*.swo
+/dist
+/.idea
+/.vscode
+
+# skill install --project で置かれる可能性のある場所（bundled source と区別するため）
+/.claude/skills/imoocs/
+
+# 実機 E2E の fixture キャプチャ（個人データ混入回避）
+/fixtures/private/

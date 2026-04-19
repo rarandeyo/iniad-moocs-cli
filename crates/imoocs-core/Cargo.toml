@@ -1,0 +1,43 @@
+[package]
+name = "imoocs-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Core library for imoocs — INIAD MOOCs CLI"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+reqwest_cookie_store.workspace = true
+cookie_store.workspace = true
+scraper.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
+schemars.workspace = true
+keyring.workspace = true
+tracing.workspace = true
+unicode_escape.workspace = true
+svg2pdf.workspace = true
+lopdf.workspace = true
+etcetera.workspace = true
+rustix.workspace = true
+sha1.workspace = true
+hex.workspace = true
+url.workspace = true
+bytes.workspace = true
+async-trait.workspace = true
+once_cell.workspace = true
+futures.workspace = true
+time.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+mockito.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "fs", "io-util", "time", "sync", "test-util"] }
