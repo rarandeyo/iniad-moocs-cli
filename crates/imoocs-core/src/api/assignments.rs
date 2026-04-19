@@ -60,15 +60,14 @@ pub async fn get_answers(
         .await?
         .error_for_status()?;
     let raw: Value = resp.json().await?;
-    // `/answers` returns either `{pid: {data, file, correct}, ...}` or
-    // `{"$network": {...}}` when the user is on a forbidden network.
+    debug!(?raw, "GET /answers raw body");
+    // `/answers` returns `{pid: {data, file, correct}, ...}`. Keys starting with
+    // `$` are server-side metadata (e.g. `$network` exposes the request's
+    // perceived network origin — NOT by itself a block). Skip those.
     let obj = match raw.as_object() {
         Some(o) => o,
         None => return Ok(HashMap::new()),
     };
-    if obj.contains_key("$network") {
-        return Err(ImoocsError::NetworkRestricted);
-    }
     let mut out = HashMap::new();
     for (k, v) in obj.iter() {
         if k.starts_with('$') {

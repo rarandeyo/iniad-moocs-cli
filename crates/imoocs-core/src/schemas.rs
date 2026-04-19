@@ -68,6 +68,10 @@ pub struct LessonContent {
     pub title: String,
     pub markdown: String,
     pub embeds: Vec<Embed>,
+    /// Problem IDs found on this page (from `.problem-container[data-problem]`).
+    /// Empty for pages without assignments.
+    #[serde(default)]
+    pub assignments: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

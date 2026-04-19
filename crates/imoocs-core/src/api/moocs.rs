@@ -159,6 +159,7 @@ pub async fn get_lesson_page(
         title: raw.title,
         markdown: raw.markdown,
         embeds: raw.embeds,
+        assignments: raw.assignments,
     })
 }
 

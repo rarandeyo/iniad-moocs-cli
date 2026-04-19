@@ -22,6 +22,8 @@ pub struct LessonContentRaw {
     pub markdown: String,
     pub embeds: Vec<Embed>,
     pub has_problem: bool,
+    /// Problem IDs found via `.problem-container[data-problem]`.
+    pub assignments: Vec<String>,
 }
 
 /// Extract a lesson page's human-visible title, markdown body, iframe embeds,
@@ -92,13 +94,21 @@ pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
         }
     }
 
-    let has_problem = doc.select(&parse_selector(".problem-container")?).next().is_some();
+    let problem_sel = parse_selector(".problem-container")?;
+    let mut assignments: Vec<String> = Vec::new();
+    for el in doc.select(&problem_sel) {
+        if let Some(pid) = el.value().attr("data-problem") {
+            assignments.push(pid.to_string());
+        }
+    }
+    let has_problem = !assignments.is_empty();
 
     Ok(LessonContentRaw {
         title,
         markdown,
         embeds,
         has_problem,
+        assignments,
     })
 }
 
