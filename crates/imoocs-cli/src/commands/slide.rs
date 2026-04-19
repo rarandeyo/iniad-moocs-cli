@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::Subcommand;
 use imoocs_core::{
-    api::slides::fetch_slide_pdf,
+    api::slides::fetch_slide_pdf_with_dump,
     envelope::ErrorDetail,
     paths::Paths,
     session::Session,
@@ -29,6 +29,9 @@ pub enum SlideCommand {
         /// Force re-download even when the cache is fresh.
         #[arg(long)]
         no_cache: bool,
+        /// Debug: dump raw pubembed HTML and extracted SVGs under this directory.
+        #[arg(long, hide = true)]
+        dump_svgs: Option<PathBuf>,
     },
 }
 
@@ -48,8 +51,16 @@ pub async fn run(global: &GlobalArgs, cmd: SlideCommand) -> Result<ExitCode> {
     let session = Session::new(paths.clone_paths())?;
 
     match cmd {
-        SlideCommand::Fetch { embed_url, out, no_cache } => {
-            match fetch_slide_pdf(&session, &paths, &embed_url, no_cache).await {
+        SlideCommand::Fetch { embed_url, out, no_cache, dump_svgs } => {
+            match fetch_slide_pdf_with_dump(
+                &session,
+                &paths,
+                &embed_url,
+                no_cache,
+                dump_svgs.as_deref(),
+            )
+            .await
+            {
                 Ok(res) => {
                     if let Some(dest) = out {
                         if let Some(parent) = dest.parent() {

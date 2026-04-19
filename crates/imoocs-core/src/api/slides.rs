@@ -3,15 +3,18 @@
 //!
 //! SVG extraction approach adapted from moocs-collect `src/repository/slide.rs:56-113`.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
+use base64::Engine;
+use futures::stream::{self, StreamExt};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sha1::{Digest, Sha1};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::auth::is_logged_in_google;
 use crate::error::{ImoocsError, Result};
@@ -24,6 +27,10 @@ const SLIDES_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 /// sequences that Google Slides embeds inside its JS init payload.
 static SVG_ESCAPED_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\\x3csvg[\s\S]*?\\x3c\\/svg\\x3e").unwrap());
+
+/// Regex to find `xlink:href="https://..."` image refs inside an SVG.
+static XLINK_HTTPS_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"xlink:href="(https://[^"]+)""#).unwrap());
 
 #[derive(Debug)]
 pub struct SlideFetchResult {
@@ -40,8 +47,21 @@ pub async fn fetch_slide_pdf(
     embed_url: &str,
     no_cache: bool,
 ) -> Result<SlideFetchResult> {
+    fetch_slide_pdf_with_dump(session, paths, embed_url, no_cache, None).await
+}
+
+/// Same as `fetch_slide_pdf` but, if `dump_dir` is provided, also writes the
+/// intermediate raw SVGs and the raw pubembed HTML there — useful for debugging
+/// blank-PDF issues without re-implementing the auth flow.
+pub async fn fetch_slide_pdf_with_dump(
+    session: &Session,
+    paths: &Paths,
+    embed_url: &str,
+    no_cache: bool,
+    dump_dir: Option<&std::path::Path>,
+) -> Result<SlideFetchResult> {
     let cache_path = cache_file(paths, embed_url);
-    if !no_cache {
+    if !no_cache && dump_dir.is_none() {
         if let Some(res) = reuse_cache_if_fresh(&cache_path)? {
             debug!(path = %cache_path.display(), "slide cache hit");
             return Ok(res);
@@ -66,6 +86,11 @@ pub async fn fetch_slide_pdf(
         .text()
         .await?;
 
+    if let Some(dir) = dump_dir {
+        fs::create_dir_all(dir)?;
+        fs::write(dir.join("pubembed.html"), &body)?;
+    }
+
     let svgs = extract_svgs(&body);
     if svgs.is_empty() {
         return Err(ImoocsError::Parse(
@@ -73,6 +98,23 @@ pub async fn fetch_slide_pdf(
              the page format may have changed"
                 .into(),
         ));
+    }
+
+    if let Some(dir) = dump_dir {
+        for (i, svg) in svgs.iter().enumerate() {
+            fs::write(dir.join(format!("slide_{i:03}.svg")), svg)?;
+        }
+    }
+
+    // Inline any https: image references into base64 data URIs so svg2pdf can
+    // rasterise them (otherwise the output PDF comes out blank for image-heavy
+    // slides).
+    let svgs = inline_image_refs(session, &svgs).await?;
+
+    if let Some(dir) = dump_dir {
+        for (i, svg) in svgs.iter().enumerate() {
+            fs::write(dir.join(format!("slide_inlined_{i:03}.svg")), svg)?;
+        }
     }
 
     let pdf_bytes = svgs_to_pdf(&svgs)?;
@@ -134,6 +176,112 @@ fn extract_svgs(body: &str) -> Vec<String> {
         .map(|s| s.replace(r"\/", "/"))
         .filter_map(|s| unicode_escape::decode(&s).ok())
         .collect()
+}
+
+/// Replace every `xlink:href="https://..."` in the SVGs with a base64 data URI
+/// whose content is the fetched resource. Shares the download across SVGs that
+/// reference the same URL. Failures are warned and leave the original URL.
+async fn inline_image_refs(session: &Session, svgs: &[String]) -> Result<Vec<String>> {
+    // Collect all unique URLs across slides.
+    let mut urls: Vec<String> = Vec::new();
+    for svg in svgs {
+        for cap in XLINK_HTTPS_RE.captures_iter(svg) {
+            let u = cap[1].to_string();
+            if !urls.contains(&u) {
+                urls.push(u);
+            }
+        }
+    }
+    if urls.is_empty() {
+        return Ok(svgs.to_vec());
+    }
+    info!(count = urls.len(), "pre-fetching inlined slide images");
+
+    // Fetch in parallel.
+    type FetchOutcome = std::result::Result<(Vec<u8>, Option<String>), String>;
+    let results: Vec<(String, FetchOutcome)> =
+        stream::iter(urls.into_iter())
+            .map(|url| async move {
+                let out = async {
+                    let resp = session.client.get(&url).send().await?.error_for_status()?;
+                    let content_type = resp
+                        .headers()
+                        .get(reqwest::header::CONTENT_TYPE)
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
+                    let bytes = resp.bytes().await?.to_vec();
+                    Ok::<_, reqwest::Error>((bytes, content_type))
+                }
+                .await
+                .map_err(|e| format!("{e}"));
+                (url, out)
+            })
+            .buffer_unordered(6)
+            .collect()
+            .await;
+
+    let mut cache: HashMap<String, String> = HashMap::new();
+    for (url, res) in results {
+        match res {
+            Ok((bytes, ct)) => {
+                let mime = detect_mime(ct.as_deref(), &bytes);
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                cache.insert(url, format!("data:{mime};base64,{b64}"));
+            }
+            Err(e) => {
+                warn!(%url, error = %e, "failed to fetch inline slide image");
+            }
+        }
+    }
+
+    // Rewrite each SVG replacing matching URLs.
+    let out: Vec<String> = svgs
+        .iter()
+        .map(|svg| {
+            XLINK_HTTPS_RE
+                .replace_all(svg, |caps: &regex::Captures<'_>| {
+                    let url = &caps[1];
+                    match cache.get(url) {
+                        Some(data_uri) => format!(r#"xlink:href="{data_uri}""#),
+                        None => caps[0].to_string(),
+                    }
+                })
+                .into_owned()
+        })
+        .collect();
+    Ok(out)
+}
+
+fn detect_mime(header_ct: Option<&str>, bytes: &[u8]) -> &'static str {
+    if let Some(ct) = header_ct {
+        // Sanitize common aliases
+        return match ct {
+            "image/jpeg" | "image/jpg" => "image/jpeg",
+            "image/png" => "image/png",
+            "image/gif" => "image/gif",
+            "image/webp" => "image/webp",
+            "image/svg+xml" => "image/svg+xml",
+            _ => {
+                // Fall back to magic sniffing
+                sniff_mime(bytes)
+            }
+        };
+    }
+    sniff_mime(bytes)
+}
+
+fn sniff_mime(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        "image/png"
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        "image/gif"
+    } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        "application/octet-stream"
+    }
 }
 
 /// Compose multiple SVG pages into a single multi-page PDF.
