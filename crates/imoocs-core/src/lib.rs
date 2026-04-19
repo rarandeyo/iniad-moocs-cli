@@ -8,6 +8,7 @@
 //! - `schemas`: serde+schemars types, stable JSON envelope
 //! - `util`: small helpers (html, stdout, paths)
 
+pub mod api;
 pub mod auth;
 pub mod config;
 pub mod envelope;
@@ -15,6 +16,7 @@ pub mod error;
 pub mod keyring;
 pub mod paths;
 pub mod schemas;
+pub mod scrape;
 pub mod session;
 pub mod util;
 

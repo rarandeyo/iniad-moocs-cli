@@ -59,6 +59,18 @@ pub enum Command {
         #[command(subcommand)]
         cmd: commands::auth::AuthCommand,
     },
+    /// Course subcommands (list / show).
+    #[command(visible_alias = "c")]
+    Course {
+        #[command(subcommand)]
+        cmd: commands::course::CourseCommand,
+    },
+    /// Lesson subcommands (show).
+    #[command(visible_alias = "l")]
+    Lesson {
+        #[command(subcommand)]
+        cmd: commands::lesson::LessonCommand,
+    },
 }
 
 pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
@@ -66,5 +78,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Version => commands::version::run(&cli.global),
         Command::Doctor => commands::doctor::run(&cli.global).await,
         Command::Auth { cmd } => commands::auth::run(&cli.global, cmd).await,
+        Command::Course { cmd } => commands::course::run(&cli.global, cmd).await,
+        Command::Lesson { cmd } => commands::lesson::run(&cli.global, cmd).await,
     }
 }

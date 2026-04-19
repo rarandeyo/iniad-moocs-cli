@@ -28,6 +28,27 @@ pub struct Lesson {
     pub pages: Vec<Page>,
 }
 
+/// Lightweight lesson reference used by `course show` where page enumeration is not performed.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LessonRef {
+    pub year: Year,
+    pub course_id: String,
+    pub lesson_id: String,
+    pub title: String,
+    pub url: String,
+    /// Optional chapter/section heading the lesson belongs to (from sidebar grouping).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CourseDetail {
+    pub course: Course,
+    pub lessons: Vec<LessonRef>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
