@@ -1,11 +1,17 @@
 //! High-level HTTP helpers that combine fetch + scrape.
 
+use futures::stream::{self, StreamExt};
 use tracing::debug;
 
+use crate::api::assignments::get_status;
 use crate::auth::is_logged_in_moocs;
 use crate::error::{ImoocsError, Result};
-use crate::schemas::{Course, CourseDetail, Embed, Lesson, LessonContent, Page, Year};
+use crate::schemas::{
+    AssignmentKey, AssignmentSummary, Course, CourseDetail, Embed, Lesson, LessonContent, Page,
+    Year,
+};
 use crate::scrape::{
+    assignments::scrape_assignments_on_page,
     content::scrape_lesson_content,
     courses::scrape_course_list,
     lessons::scrape_course_lessons,
@@ -134,6 +140,96 @@ pub async fn get_lesson_page(
         markdown: raw.markdown,
         embeds: raw.embeds,
     })
+}
+
+/// Crawl all pages of every lesson in a course, harvesting `.problem-container`
+/// assignments. Fetches `/status` for each one in parallel to fill in status.
+///
+/// Concurrency: 4 concurrent page fetches + 4 concurrent status fetches.
+pub async fn list_course_assignments(
+    session: &Session,
+    year: Year,
+    course_id: &str,
+) -> Result<Vec<AssignmentSummary>> {
+    ensure_authenticated(session).await?;
+    let detail = get_course_detail(session, year, course_id).await?;
+
+    // Stage 1: for each lesson, fetch its bare URL to learn its pages.
+    let lessons = detail.lessons.clone();
+    let pages = stream::iter(lessons.into_iter())
+        .map(|lref| {
+            async move {
+                let url = url::build_lesson(lref.year, &lref.course_id, &lref.lesson_id);
+                let resp = session.client.get(&url).send().await?.error_for_status()?;
+                let final_url = resp.url().as_str().to_string();
+                let html = resp.text().await?;
+                let pages = scrape_lesson_pages(
+                    &html,
+                    &final_url,
+                    lref.year,
+                    &lref.course_id,
+                    &lref.lesson_id,
+                )?;
+                Ok::<_, ImoocsError>((lref, pages))
+            }
+        })
+        .buffer_unordered(4)
+        .collect::<Vec<_>>()
+        .await;
+
+    let mut all_pages: Vec<(String, String, String)> = Vec::new(); // (lesson_id, page_id, url)
+    for res in pages {
+        match res {
+            Ok((lref, ps)) => {
+                for p in ps {
+                    all_pages.push((lref.lesson_id.clone(), p.page_id, p.url));
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    // Stage 2: fetch each page, scrape assignments. Dedupe by problem_id.
+    let course_owned = course_id.to_string();
+    let assignment_vecs = stream::iter(all_pages.into_iter())
+        .map(|(_lesson_id, page_id, page_url)| {
+            let course = course_owned.clone();
+            async move {
+                let html = session.client.get(&page_url).send().await?.error_for_status()?.text().await?;
+                let v = scrape_assignments_on_page(&html, year, &course, &page_id)?;
+                Ok::<_, ImoocsError>(v)
+            }
+        })
+        .buffer_unordered(4)
+        .collect::<Vec<_>>()
+        .await;
+
+    let mut seen = std::collections::BTreeMap::<String, AssignmentSummary>::new();
+    for res in assignment_vecs {
+        for a in res? {
+            seen.entry(a.problem_id.clone()).or_insert(a);
+        }
+    }
+
+    // Stage 3: fetch /status for each in parallel.
+    let list: Vec<AssignmentSummary> = stream::iter(seen.into_values())
+        .map(|mut a| async move {
+            let key = AssignmentKey {
+                year: a.year,
+                course_id: a.course_id.clone(),
+                problem_id: a.problem_id.clone(),
+            };
+            match get_status(session, &key).await {
+                Ok(s) => a.status = s,
+                Err(_) => a.status = crate::schemas::AssignmentStatus::Error,
+            }
+            a
+        })
+        .buffer_unordered(4)
+        .collect()
+        .await;
+
+    Ok(list)
 }
 
 /// Optional: fetch full page list for a lesson. Not used in MVP `course show` but

@@ -14,7 +14,7 @@ authors = ["rarandeyo"]
 anyhow = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util", "time", "sync"] }
-reqwest = { version = "0.13", features = ["cookies", "gzip", "json", "multipart", "stream", "form"] }
+reqwest = { version = "0.13", features = ["cookies", "gzip", "json", "multipart", "stream", "form", "query"] }
 reqwest_cookie_store = { version = "0.10", features = ["serde"] }
 cookie_store = "0.22"
 scraper = "0.23"

@@ -71,6 +71,12 @@ pub enum Command {
         #[command(subcommand)]
         cmd: commands::lesson::LessonCommand,
     },
+    /// Assignment subcommands (list / show / answer / submit / upload).
+    #[command(visible_alias = "a")]
+    Assignment {
+        #[command(subcommand)]
+        cmd: commands::assignment::AssignmentCommand,
+    },
 }
 
 pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
@@ -80,5 +86,6 @@ pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Auth { cmd } => commands::auth::run(&cli.global, cmd).await,
         Command::Course { cmd } => commands::course::run(&cli.global, cmd).await,
         Command::Lesson { cmd } => commands::lesson::run(&cli.global, cmd).await,
+        Command::Assignment { cmd } => commands::assignment::run(&cli.global, cmd).await,
     }
 }
