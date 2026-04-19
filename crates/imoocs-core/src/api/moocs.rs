@@ -20,14 +20,17 @@ use crate::scrape::{
 };
 use crate::session::{moocs_url, Session};
 
-/// Discover the "latest" year by following `/courses` redirects.
+/// Discover the "latest" year from `/courses`.
+///
+/// `/courses` does not redirect to a year-specific URL for logged-in users —
+/// instead it renders the current year's course list directly. So we pull the
+/// year out of any course card link on the page.
 pub async fn resolve_latest_year(session: &Session) -> Result<Year> {
     let resp = session.client.get(moocs_url("/courses")).send().await?;
     let final_url = resp.url().clone();
     let status = resp.status();
-    let _body = resp.text().await?; // consume response so cookies land
+    let body = resp.text().await?;
 
-    // /courses redirects to /signin when unauthenticated — surface as Auth, not Internal.
     if final_url.path().starts_with("/signin") || status == reqwest::StatusCode::UNAUTHORIZED {
         return Err(ImoocsError::Auth {
             reason: "not logged in to MOOCs".into(),
@@ -40,18 +43,35 @@ pub async fn resolve_latest_year(session: &Session) -> Result<Year> {
         )));
     }
 
-    match url::parse(final_url.as_str()) {
-        Some(MoocsPath::Year(y)) => Ok(y),
-        Some(MoocsPath::CoursesIndex) => Err(ImoocsError::Internal(
-            "MOOCs did not redirect /courses to a specific year".into(),
-        )),
-        Some(other) => Err(ImoocsError::Internal(format!(
-            "unexpected /courses redirect target: {other:?}"
-        ))),
-        None => Err(ImoocsError::Internal(format!(
-            "could not parse /courses redirect URL: {final_url}"
-        ))),
+    // Case A: MOOCs did redirect to /courses/<year> (e.g. archive year).
+    if let Some(MoocsPath::Year(y)) = url::parse(final_url.as_str()) {
+        return Ok(y);
     }
+
+    // Case B: extract year from any course card link /courses/<year>/<courseId>.
+    if let Some(y) = extract_year_from_course_links(&body) {
+        return Ok(y);
+    }
+
+    Err(ImoocsError::Internal(format!(
+        "could not determine current year from /courses (final url: {final_url})"
+    )))
+}
+
+fn extract_year_from_course_links(html: &str) -> Option<Year> {
+    let doc = scraper::Html::parse_document(html);
+    let sel = crate::util::html::parse_selector(r#"a[href^="/courses/"]"#).ok()?;
+    for a in doc.select(&sel) {
+        if let Some(href) = a.value().attr("href") {
+            if let Some(MoocsPath::Course { year, .. }) = url::parse(href) {
+                return Some(year);
+            }
+            if let Some(MoocsPath::Lesson { year, .. }) = url::parse(href) {
+                return Some(year);
+            }
+        }
+    }
+    None
 }
 
 async fn ensure_authenticated(session: &Session) -> Result<()> {

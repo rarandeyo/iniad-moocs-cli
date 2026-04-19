@@ -73,6 +73,7 @@ pub struct LessonContent {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Embed {
+    #[serde(rename_all = "camelCase")]
     GoogleSlides {
         embed_url: String,
         export_pdf_url: String,
@@ -86,6 +87,7 @@ pub enum Embed {
         #[serde(skip_serializing_if = "Option::is_none")]
         fetched_at: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     GoogleDrive {
         embed_url: String,
     },
@@ -134,28 +136,33 @@ pub struct UploadedFile {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ProblemField {
+    #[serde(rename_all = "camelCase")]
     Textarea {
         pid: String,
         label: String,
         current_value: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     Text {
         pid: String,
         label: String,
         current_value: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     Radio {
         pid: String,
         label: String,
         options: Vec<RadioOption>,
         current_value: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     Checkbox {
         pid: String,
         label: String,
         options: Vec<RadioOption>,
         current_value: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
     File {
         pid: String,
         label: String,
