@@ -1,5 +1,6 @@
 pub mod assignment;
 pub mod auth;
+pub mod completion;
 pub mod course;
 pub mod doctor;
 pub mod lesson;
