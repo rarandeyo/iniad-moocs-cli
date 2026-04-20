@@ -47,6 +47,7 @@ time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"
 toml = "1"
 base64 = "0.22"
 include_dir = "0.7"
+mime_guess = "2"
 
 # Dev
 insta = { version = "1", features = ["json"] }

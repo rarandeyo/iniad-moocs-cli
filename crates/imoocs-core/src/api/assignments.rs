@@ -132,11 +132,20 @@ pub async fn post_file(
         .unwrap_or("upload.bin")
         .to_string();
 
-    let mut form = reqwest::multipart::Form::new()
-        .part(
-            "file",
-            reqwest::multipart::Part::bytes(file_bytes).file_name(filename),
-        );
+    // MOOCs の browser render は `file.filetype` が set されていないと
+    // 「未提出」と表示する (application.js の render_file)。Content-Type を
+    // 拡張子から推定して Part にセットすると、server 側が `filetype` を
+    // 記録してくれる。推定できなければ `application/octet-stream`。
+    let mime = mime_guess::from_path(path)
+        .first_or_octet_stream()
+        .essence_str()
+        .to_string();
+    let part = reqwest::multipart::Part::bytes(file_bytes)
+        .file_name(filename)
+        .mime_str(&mime)
+        .map_err(|e| ImoocsError::Internal(format!("invalid mime {mime}: {e}")))?;
+
+    let mut form = reqwest::multipart::Form::new().part("file", part);
     if force {
         form = form.text("force", "true");
     }
