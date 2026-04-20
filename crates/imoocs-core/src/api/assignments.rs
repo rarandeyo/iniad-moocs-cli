@@ -23,12 +23,11 @@ fn prefix(key: &AssignmentKey) -> String {
 }
 
 pub async fn get_status(session: &Session, key: &AssignmentKey) -> Result<AssignmentStatus> {
-    let resp = session
-        .client
-        .get(format!("{}/status", prefix(key)))
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = send_and_check(
+        session.client.get(format!("{}/status", prefix(key))),
+        "/status",
+    )
+    .await?;
     let v: StatusRaw = resp.json().await?;
     Ok(v.into_status())
 }
@@ -38,13 +37,14 @@ pub async fn get_problem_html(session: &Session, key: &AssignmentKey, lang: Lang
         Lang::Ja => "ja",
         Lang::En => "en",
     };
-    let resp = session
-        .client
-        .get(format!("{}/problem", prefix(key)))
-        .query(&[("lang", lang_str)])
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = send_and_check(
+        session
+            .client
+            .get(format!("{}/problem", prefix(key)))
+            .query(&[("lang", lang_str)]),
+        "/problem",
+    )
+    .await?;
     let v: ProblemRaw = resp.json().await?;
     Ok(v.html)
 }
@@ -53,12 +53,11 @@ pub async fn get_answers(
     session: &Session,
     key: &AssignmentKey,
 ) -> Result<HashMap<String, AnswerEntry>> {
-    let resp = session
-        .client
-        .get(format!("{}/answers", prefix(key)))
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = send_and_check(
+        session.client.get(format!("{}/answers", prefix(key))),
+        "/answers",
+    )
+    .await?;
     let raw: Value = resp.json().await?;
     debug!(?raw, "GET /answers raw body");
     // `/answers` returns `{pid: {data, file, correct}, ...}`. Keys starting with
@@ -158,23 +157,21 @@ pub async fn post_file(
 }
 
 pub async fn get_file(session: &Session, key: &AssignmentKey, pid: &str) -> Result<bytes::Bytes> {
-    let resp = session
-        .client
-        .get(format!("{}/file/{}", prefix(key), pid))
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = send_and_check(
+        session.client.get(format!("{}/file/{}", prefix(key), pid)),
+        "/file",
+    )
+    .await?;
     let bytes = resp.bytes().await?;
     Ok(bytes)
 }
 
 pub async fn get_assessment(session: &Session, key: &AssignmentKey) -> Result<Assessment> {
-    let resp = session
-        .client
-        .get(format!("{}/assessment", prefix(key)))
-        .send()
-        .await?
-        .error_for_status()?;
+    let resp = send_and_check(
+        session.client.get(format!("{}/assessment", prefix(key))),
+        "/assessment",
+    )
+    .await?;
     let v: AssessmentRaw = resp.json().await?;
     Ok(Assessment {
         mark: v.mark.unwrap_or(0.0),
@@ -247,6 +244,49 @@ async fn refresh_csrf(session: &Session) -> Result<String> {
     session.set_csrf_token(Some(content.clone())).await;
     debug!("refreshed CSRF token ({} chars)", content.len());
     Ok(content)
+}
+
+/// Send a request and return a checked response. HTTP 4xx/5xx are translated
+/// to domain errors (Auth / NotFound / Api / Network) rather than a raw reqwest
+/// error, so CLI exit codes carry the right semantics.
+async fn send_and_check(
+    req: reqwest::RequestBuilder,
+    endpoint_hint: &str,
+) -> Result<reqwest::Response> {
+    let resp = req.send().await?;
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp);
+    }
+    // Body preview is best-effort.
+    let body = resp.text().await.ok();
+    Err(map_http_err_with_context(status, body, endpoint_hint))
+}
+
+fn map_http_err_with_context(
+    status: reqwest::StatusCode,
+    body: Option<String>,
+    endpoint_hint: &str,
+) -> ImoocsError {
+    use reqwest::StatusCode;
+    let msg_src = body
+        .as_deref()
+        .and_then(|b| if b.len() > 500 { None } else { Some(b) })
+        .unwrap_or_default();
+    match status {
+        StatusCode::UNAUTHORIZED | StatusCode::FOUND => ImoocsError::Auth {
+            reason: format!("HTTP {status} on {endpoint_hint}"),
+            hint: Some("run `imoocs auth login`".into()),
+        },
+        StatusCode::NOT_FOUND => ImoocsError::NotFound {
+            what: format!("{endpoint_hint} returned 404{}",
+                if msg_src.is_empty() { String::new() } else { format!(": {msg_src}") }),
+        },
+        StatusCode::SERVICE_UNAVAILABLE => {
+            ImoocsError::Api(format!("service unavailable (503) on {endpoint_hint}: {msg_src}"))
+        }
+        _ => ImoocsError::Api(format!("HTTP {status} on {endpoint_hint}: {msg_src}")),
+    }
 }
 
 fn map_http_err(status: reqwest::StatusCode, body: Option<String>) -> ImoocsError {
