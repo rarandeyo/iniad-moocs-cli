@@ -42,11 +42,21 @@ pub struct LessonRef {
     pub section: Option<String>,
 }
 
+/// Section grouping in the course sidebar (moocs-collect の LectureGroup 相当)。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LectureGroup {
+    pub title: String,
+    pub lessons: Vec<LessonRef>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CourseDetail {
     pub course: Course,
     pub lessons: Vec<LessonRef>,
+    /// Same lessons organised by sidebar section heading (章立て)。
+    pub groups: Vec<LectureGroup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

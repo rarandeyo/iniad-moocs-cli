@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use scraper::{ElementRef, Html};
 
 use crate::error::Result;
-use crate::schemas::{LessonRef, Year};
+use crate::schemas::{LectureGroup, LessonRef, Year};
 use crate::scrape::url::{self, MoocsPath};
 use crate::session::moocs_url;
 use crate::util::html::parse_selector;
@@ -91,4 +91,73 @@ fn absolutize(href: &str) -> String {
     } else {
         moocs_url(href)
     }
+}
+
+/// コースサイドバーの章立て (`ul.sidebar-menu li.treeview`) を走査して
+/// LectureGroup の配列を返す。順序はサイドバーの出現順を維持。
+/// `treeview` が見つからない / 空の場合は、フラットな `scrape_course_lessons`
+/// 結果を 1 つのダミーグループ ("") に詰めて返す。
+pub fn scrape_course_lecture_groups(
+    html: &str,
+    year: Year,
+    course_id: &str,
+) -> Result<Vec<LectureGroup>> {
+    let document = Html::parse_document(html);
+    let treeview_sel = parse_selector("aside ul.sidebar-menu li.treeview")?;
+    let submenu_sel = parse_selector(":scope > ul.treeview-menu li a[href]")?;
+
+    let mut groups: Vec<LectureGroup> = Vec::new();
+    for li in document.select(&treeview_sel) {
+        // Group title: first direct <a>/<span>/<text> child of the li
+        let title = li
+            .children()
+            .filter_map(ElementRef::wrap)
+            .find(|c| matches!(c.value().name(), "a" | "span"))
+            .map(|el| el.text().collect::<String>().trim().to_string())
+            .unwrap_or_default();
+
+        let mut lessons: Vec<LessonRef> = Vec::new();
+        for a in li.select(&submenu_sel) {
+            let Some(href) = a.value().attr("href") else { continue };
+            let absolute = absolutize(href);
+            let MoocsPath::Lesson {
+                year: y,
+                course_id: c,
+                lesson_id,
+            } = url::parse(&absolute).unwrap_or(MoocsPath::CoursesIndex)
+            else {
+                continue;
+            };
+            if y != year || c != course_id {
+                continue;
+            }
+            let lesson_title = a.text().collect::<String>().trim().to_string();
+            lessons.push(LessonRef {
+                year,
+                course_id: course_id.to_string(),
+                lesson_id,
+                title: lesson_title,
+                url: absolute,
+                section: if title.is_empty() { None } else { Some(title.clone()) },
+            });
+        }
+
+        if !lessons.is_empty() {
+            groups.push(LectureGroup { title, lessons });
+        }
+    }
+
+    // Fallback: if no treeview structure matched, fall back to the flat list
+    // so that CourseDetail.groups is never empty when lessons exist.
+    if groups.is_empty() {
+        let flat = scrape_course_lessons(html, year, course_id)?;
+        if !flat.is_empty() {
+            groups.push(LectureGroup {
+                title: String::new(),
+                lessons: flat,
+            });
+        }
+    }
+
+    Ok(groups)
 }

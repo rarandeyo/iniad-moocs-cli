@@ -16,7 +16,7 @@ use crate::scrape::{
     assignments::scrape_assignments_on_page,
     content::scrape_lesson_content,
     courses::scrape_course_list,
-    lessons::scrape_course_lessons,
+    lessons::{scrape_course_lecture_groups, scrape_course_lessons},
     pages::scrape_lesson_pages,
     url::{self, MoocsPath},
 };
@@ -105,17 +105,16 @@ pub async fn get_course_detail(
     debug!(%url, "fetching course detail");
     let html = session.client.get(&url).send().await?.error_for_status()?.text().await?;
     let lessons = scrape_course_lessons(&html, year, course_id)?;
+    let groups = scrape_course_lecture_groups(&html, year, course_id)?;
 
     // Also recover the course name from the top of the lesson list (course page title).
-    // For simplicity, pick the first course in the courses-list that matches (we already
-    // have the course_id/year, so a name fallback is fine).
     let course = Course {
         year,
         course_id: course_id.to_string(),
         name: extract_course_name(&html).unwrap_or_else(|| course_id.to_string()),
         url,
     };
-    Ok(CourseDetail { course, lessons })
+    Ok(CourseDetail { course, lessons, groups })
 }
 
 fn extract_course_name(html: &str) -> Option<String> {
