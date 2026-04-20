@@ -202,7 +202,7 @@ pub async fn get_assignment_detail(
     };
 
     let mut fields: Vec<ProblemField> = parse_problem_form(&html);
-    apply_answers(&mut fields, &answers);
+    apply_answers(&mut fields, &answers, Some(key));
 
     Ok(AssignmentDetail {
         year: key.year,

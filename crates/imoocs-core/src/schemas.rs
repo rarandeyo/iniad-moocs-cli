@@ -186,10 +186,25 @@ pub struct RadioOption {
     pub text: String,
 }
 
+/// Uploaded file metadata attached to a file-type ProblemField.
+///
+/// Server-side `/answers` response uses `{filename, filetype, timestamp}` shape
+/// (with `filename` required). We serialize in camelCase for agents and
+/// deserialize from the server keys directly. `downloadUrl` is a derived
+/// convenience field populated by `apply_answers`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadedFile {
-    pub name: String,
+    /// Original filename as recorded by the server.
+    pub filename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filetype: Option<String>,
+    /// Upload Unix timestamp (seconds).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
+    /// Derived: `https://moocs.iniad.org/assignments/<y>/<c>/<p>/file/<pid>`.
+    /// Empty when the caller didn't derive it yet.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub download_url: String,
 }
 

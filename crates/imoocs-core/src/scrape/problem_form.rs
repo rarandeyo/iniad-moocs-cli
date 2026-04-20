@@ -196,16 +196,18 @@ fn nearest_label_text(input: &ElementRef<'_>) -> String {
 }
 
 /// Merge `/answers` response into the parsed fields. `current_value` is a JSON
-/// scalar (string / array). For files, the answers response provides the
-/// uploaded filename under an implementation-specific shape.
+/// scalar (string / array). For files, we copy `AnswerEntry::file` (which maps
+/// server `{filename, filetype, timestamp}`) and derive `downloadUrl` from the
+/// assignment key + pid.
 pub fn apply_answers(
     fields: &mut [ProblemField],
     answers: &std::collections::HashMap<String, crate::schemas::AnswerEntry>,
+    key: Option<&crate::schemas::AssignmentKey>,
 ) {
     use serde_json::Value;
     for field in fields.iter_mut() {
-        let pid = field_pid(field);
-        let Some(entry) = answers.get(pid) else { continue };
+        let pid = field_pid(field).to_string();
+        let Some(entry) = answers.get(&pid) else { continue };
         match field {
             ProblemField::Textarea { current_value, .. }
             | ProblemField::Text { current_value, .. }
@@ -224,7 +226,17 @@ pub fn apply_answers(
                 };
             }
             ProblemField::File { uploaded_file, .. } => {
-                *uploaded_file = entry.file.clone();
+                if let Some(mut uf) = entry.file.clone() {
+                    if let Some(k) = key {
+                        uf.download_url = crate::session::moocs_url(&format!(
+                            "/assignments/{}/{}/{}/file/{}",
+                            k.year, k.course_id, k.problem_id, pid,
+                        ));
+                    }
+                    *uploaded_file = Some(uf);
+                } else {
+                    *uploaded_file = None;
+                }
             }
         }
     }
