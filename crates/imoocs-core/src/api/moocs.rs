@@ -3,12 +3,12 @@
 use futures::stream::{self, StreamExt};
 use tracing::debug;
 
-use crate::api::assignments::get_status;
+use crate::api::assignments::{get_assignment_detail, get_status};
 use crate::auth::is_logged_in_moocs;
 use crate::error::{ImoocsError, Result};
 use crate::schemas::{
-    AssignmentKey, AssignmentSummary, Course, CourseDetail, Embed, Lesson, LessonContent, Page,
-    Year,
+    AssignmentDetail, AssignmentKey, AssignmentSummary, Course, CourseDetail, Embed, Lang, Lesson,
+    LessonContent, LessonWithAssignments, Page, Year,
 };
 use crate::scrape::{
     assignments::scrape_assignments_on_page,
@@ -161,6 +161,33 @@ pub async fn get_lesson_page(
         embeds: raw.embeds,
         assignments: raw.assignments,
     })
+}
+
+/// `lesson show --with-assignments` や `open` が使う合成ビュー。
+/// LessonContent 取得後、各 problem_id の AssignmentDetail を並列展開して
+/// まとめて返す。個別の expansion に失敗した要素は None。
+pub async fn get_lesson_with_assignments(
+    session: &Session,
+    year: Year,
+    course_id: &str,
+    lesson_id: &str,
+    page_id: Option<&str>,
+    lang: Lang,
+) -> Result<LessonWithAssignments> {
+    let lesson = get_lesson_page(session, year, course_id, lesson_id, page_id).await?;
+    let course_id_owned = course_id.to_string();
+    let details: Vec<Option<AssignmentDetail>> = stream::iter(lesson.assignments.clone())
+        .map(|problem_id| {
+            let course_id = course_id_owned.clone();
+            async move {
+                let key = AssignmentKey { year, course_id, problem_id };
+                get_assignment_detail(session, &key, lang).await.ok()
+            }
+        })
+        .buffer_unordered(4)
+        .collect()
+        .await;
+    Ok(LessonWithAssignments { lesson, assignments: details })
 }
 
 /// Crawl all pages of every lesson in a course, harvesting `.problem-container`

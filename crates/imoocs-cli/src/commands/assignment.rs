@@ -10,6 +10,7 @@ use imoocs_core::{
     envelope::ErrorDetail,
     paths::Paths,
     schemas::{AssignmentKey, Lang},
+    scrape::url::{self, MoocsPath},
     session::Session,
     ImoocsError,
 };
@@ -38,45 +39,56 @@ impl From<LangArg> for Lang {
 pub enum AssignmentCommand {
     /// List all assignments in a course (by crawling lessons/pages).
     #[command(visible_alias = "ls")]
-    List {
-        course_id: String,
-    },
+    List { course_id: String },
     /// Show a single assignment's status, fields (typed), and current answers.
     Show {
-        course_id: String,
-        problem_id: String,
-        /// Language variant of the problem statement.
+        #[arg(required_unless_present = "url")]
+        course_id: Option<String>,
+        #[arg(required_unless_present = "url")]
+        problem_id: Option<String>,
         #[arg(long, value_enum, default_value_t = LangArg::Ja)]
         lang: LangArg,
+        /// Resolve the assignment from a lesson/page MOOCs URL.
+        /// The first `.problem-container` on the page is chosen; error if the page has 0 or > 1 assignments.
+        #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
+        url: Option<String>,
     },
     /// Save a draft answer without finalising. Accepts JSON `{pid: value}`.
     Answer {
-        course_id: String,
-        problem_id: String,
-        /// JSON inline (`--data '{"p1": "x"}'`), `@file`, or `-` (stdin).
+        #[arg(required_unless_present = "url")]
+        course_id: Option<String>,
+        #[arg(required_unless_present = "url")]
+        problem_id: Option<String>,
         #[arg(long)]
         data: String,
+        #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
+        url: Option<String>,
     },
     /// Finalise the submission (PUT /answers with `force=true`).
     Submit {
-        course_id: String,
-        problem_id: String,
-        /// Optional data to set before submitting. Same format as `answer --data`.
+        #[arg(required_unless_present = "url")]
+        course_id: Option<String>,
+        #[arg(required_unless_present = "url")]
+        problem_id: Option<String>,
         #[arg(long)]
         data: Option<String>,
+        #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
+        url: Option<String>,
     },
     /// Upload a file answer to a specific pid.
     Upload {
-        course_id: String,
-        problem_id: String,
+        #[arg(required_unless_present = "url")]
+        course_id: Option<String>,
+        #[arg(required_unless_present = "url")]
+        problem_id: Option<String>,
         /// The problem field id for the file.
         #[arg(long)]
         pid: String,
-        /// Local file path to upload.
         file: PathBuf,
-        /// Force=true (finalise after upload).
         #[arg(long)]
         force: bool,
+        #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
+        url: Option<String>,
     },
 }
 
@@ -84,16 +96,15 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
     let paths = Paths::discover()?;
     let session = Session::new(paths)?;
 
-    let year = match global.year {
-        Some(y) => y,
-        None => match api::resolve_latest_year(&session).await {
-            Ok(y) => y,
-            Err(err) => return Ok(emit_err(err)),
-        },
-    };
-
     match cmd {
         AssignmentCommand::List { course_id } => {
+            let year = match global.year {
+                Some(y) => y,
+                None => match api::resolve_latest_year(&session).await {
+                    Ok(y) => y,
+                    Err(err) => return Ok(emit_err(err)),
+                },
+            };
             match api::list_course_assignments(&session, year, &course_id).await {
                 Ok(v) => {
                     output::emit_success(v, global.format);
@@ -106,11 +117,11 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             course_id,
             problem_id,
             lang,
+            url,
         } => {
-            let key = AssignmentKey {
-                year,
-                course_id,
-                problem_id,
+            let key = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
+                Ok(k) => k,
+                Err(e) => return Ok(emit_err(e)),
             };
             match api::assignments::get_assignment_detail(&session, &key, lang.into()).await {
                 Ok(v) => {
@@ -124,11 +135,11 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             course_id,
             problem_id,
             data,
+            url,
         } => {
-            let key = AssignmentKey {
-                year,
-                course_id,
-                problem_id,
+            let key = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
+                Ok(k) => k,
+                Err(e) => return Ok(emit_err(e)),
             };
             let parsed = match parse_data(&data) {
                 Ok(p) => p,
@@ -146,18 +157,17 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             course_id,
             problem_id,
             data,
+            url,
         } => {
             if !global.yes {
                 let err = ImoocsError::Validation(
-                    "`assignment submit` requires --yes (force=true finalises the submission)"
-                        .into(),
+                    "`assignment submit` requires --yes (force=true finalises the submission)".into(),
                 );
                 return Ok(emit_err(err));
             }
-            let key = AssignmentKey {
-                year,
-                course_id,
-                problem_id,
+            let key = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
+                Ok(k) => k,
+                Err(e) => return Ok(emit_err(e)),
             };
             let parsed = match data {
                 Some(raw) => match parse_data(&raw) {
@@ -180,11 +190,11 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             pid,
             file,
             force,
+            url,
         } => {
-            let key = AssignmentKey {
-                year,
-                course_id,
-                problem_id,
+            let key = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
+                Ok(k) => k,
+                Err(e) => return Ok(emit_err(e)),
             };
             match api::post_file(&session, &key, &pid, &file, force).await {
                 Ok(()) => {
@@ -194,6 +204,59 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
                 Err(e) => Ok(emit_err(e)),
             }
         }
+    }
+}
+
+/// Resolve an AssignmentKey from either explicit positional args or a URL.
+/// URLs must point to a lesson page; the unique `.problem-container[data-problem]`
+/// on that page determines `problem_id`.
+async fn resolve_key(
+    session: &Session,
+    global_year: Option<u32>,
+    course_id: Option<String>,
+    problem_id: Option<String>,
+    url: Option<&str>,
+) -> std::result::Result<AssignmentKey, ImoocsError> {
+    if let Some(u) = url {
+        let (year, course_id, lesson_id, page_id) = match url::parse(u) {
+            Some(MoocsPath::Page { year, course_id, lesson_id, page_id }) => {
+                (year, course_id, lesson_id, Some(page_id))
+            }
+            Some(MoocsPath::Lesson { year, course_id, lesson_id }) => {
+                (year, course_id, lesson_id, None)
+            }
+            _ => {
+                return Err(ImoocsError::Validation(format!(
+                    "URL does not point to a lesson/page: {u}"
+                )))
+            }
+        };
+        let lc = api::get_lesson_page(session, year, &course_id, &lesson_id, page_id.as_deref()).await?;
+        let problems = lc.assignments;
+        match problems.len() {
+            0 => Err(ImoocsError::NotFound {
+                what: format!("no `.problem-container` on page {u}"),
+            }),
+            1 => Ok(AssignmentKey {
+                year,
+                course_id,
+                problem_id: problems.into_iter().next().unwrap(),
+            }),
+            n => Err(ImoocsError::Validation(format!(
+                "page has {n} assignments; pass --problem-id explicitly (one of: {list})",
+                list = problems.join(", ")
+            ))),
+        }
+    } else {
+        let year = match global_year {
+            Some(y) => y,
+            None => api::resolve_latest_year(session).await?,
+        };
+        Ok(AssignmentKey {
+            year,
+            course_id: course_id.expect("clap guarantees course_id when --url is missing"),
+            problem_id: problem_id.expect("clap guarantees problem_id when --url is missing"),
+        })
     }
 }
 

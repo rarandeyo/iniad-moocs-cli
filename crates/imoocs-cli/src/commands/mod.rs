@@ -4,5 +4,6 @@ pub mod completion;
 pub mod course;
 pub mod doctor;
 pub mod lesson;
+pub mod open;
 pub mod slide;
 pub mod version;

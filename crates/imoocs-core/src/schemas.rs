@@ -74,6 +74,31 @@ pub struct LessonContent {
     pub assignments: Vec<String>,
 }
 
+/// `lesson show --with-assignments` や `imoocs open <lesson-url>` で返る合成ビュー。
+/// 各 problem_id を AssignmentDetail に展開して同梱する。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LessonWithAssignments {
+    pub lesson: LessonContent,
+    /// `lesson.assignments` と同じ順序で各 problem_id の詳細を返す。
+    /// 個別の expansion に失敗した場合はその要素を null にする。
+    pub assignments: Vec<Option<AssignmentDetail>>,
+}
+
+/// `imoocs open <url>` の envelope data。URL の種類に応じて中身が切り替わる。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum OpenResult {
+    /// `/courses[/<year>]` — コース一覧
+    Courses { year: Year, courses: Vec<Course> },
+    /// `/courses/<year>/<courseId>` — コース詳細
+    Course(CourseDetail),
+    /// `/courses/<year>/<courseId>/<lessonId>[/<pageId>]` — レッスン本文 + 全課題詳細
+    Lesson(LessonWithAssignments),
+    /// `/assignments/<year>/<courseId>/<problemId>/...` — 単一課題の詳細
+    Assignment(AssignmentDetail),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Embed {

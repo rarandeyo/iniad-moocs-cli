@@ -83,6 +83,9 @@ pub enum Command {
         #[command(subcommand)]
         cmd: commands::slide::SlideCommand,
     },
+    /// Open a MOOCs URL and return the appropriate envelope
+    /// (course / lesson-with-assignments / …).
+    Open(commands::open::OpenArgs),
     /// Print shell completion script to stdout.
     Completion {
         #[arg(value_enum)]
@@ -99,6 +102,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Lesson { cmd } => commands::lesson::run(&cli.global, cmd).await,
         Command::Assignment { cmd } => commands::assignment::run(&cli.global, cmd).await,
         Command::Slide { cmd } => commands::slide::run(&cli.global, cmd).await,
+        Command::Open(args) => commands::open::run(&cli.global, args).await,
         Command::Completion { shell } => commands::completion::run(shell),
     }
 }
