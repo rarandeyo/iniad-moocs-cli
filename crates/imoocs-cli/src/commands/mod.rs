@@ -5,5 +5,6 @@ pub mod course;
 pub mod doctor;
 pub mod lesson;
 pub mod open;
+pub mod skill;
 pub mod slide;
 pub mod version;

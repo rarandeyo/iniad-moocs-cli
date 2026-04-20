@@ -86,6 +86,11 @@ pub enum Command {
     /// Open a MOOCs URL and return the appropriate envelope
     /// (course / lesson-with-assignments / …).
     Open(commands::open::OpenArgs),
+    /// Agent Skill installer (`install` / `uninstall` / `status`).
+    Skill {
+        #[command(subcommand)]
+        cmd: commands::skill::SkillCommand,
+    },
     /// Print shell completion script to stdout.
     Completion {
         #[arg(value_enum)]
@@ -103,6 +108,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Assignment { cmd } => commands::assignment::run(&cli.global, cmd).await,
         Command::Slide { cmd } => commands::slide::run(&cli.global, cmd).await,
         Command::Open(args) => commands::open::run(&cli.global, args).await,
+        Command::Skill { cmd } => commands::skill::run(&cli.global, cmd).await,
         Command::Completion { shell } => commands::completion::run(shell),
     }
 }

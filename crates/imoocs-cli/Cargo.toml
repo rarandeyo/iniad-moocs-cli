@@ -25,3 +25,4 @@ clap_mangen.workspace = true
 dialoguer.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+include_dir.workspace = true
