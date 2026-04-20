@@ -3,13 +3,15 @@
 use futures::stream::{self, StreamExt};
 use tracing::debug;
 
-use crate::api::assignments::{get_assignment_detail, get_status};
+use crate::api::assignments::{get_answers, get_assignment_detail, get_problem_html, get_status};
 use crate::auth::is_logged_in_moocs;
 use crate::error::{ImoocsError, Result};
 use crate::schemas::{
-    AssignmentDetail, AssignmentKey, AssignmentSummary, Course, CourseDetail, Embed, Lang, Lesson,
-    LessonContent, LessonWithAssignments, Page, Year,
+    AssignmentDetail, AssignmentKey, AssignmentStatus, AssignmentSummary, Course, CourseDetail,
+    DerivedStatus, Embed, Lang, Lesson, LessonContent, LessonWithAssignments, Page, ProblemField,
+    Year,
 };
+use crate::scrape::problem_form::parse_problem_form;
 use crate::scrape::{
     assignments::scrape_assignments_on_page,
     content::scrape_lesson_content,
@@ -240,11 +242,14 @@ pub async fn list_course_assignments(
     // Stage 2: fetch each page, scrape assignments. Dedupe by problem_id.
     let course_owned = course_id.to_string();
     let assignment_vecs = stream::iter(all_pages.into_iter())
-        .map(|(_lesson_id, page_id, page_url)| {
+        .map(|(lesson_id, page_id, page_url)| {
             let course = course_owned.clone();
             async move {
                 let html = session.client.get(&page_url).send().await?.error_for_status()?.text().await?;
-                let v = scrape_assignments_on_page(&html, year, &course, &page_id)?;
+                let mut v = scrape_assignments_on_page(&html, year, &course, &page_id)?;
+                for a in v.iter_mut() {
+                    a.lesson_id = Some(lesson_id.clone());
+                }
                 Ok::<_, ImoocsError>(v)
             }
         })
@@ -259,25 +264,77 @@ pub async fn list_course_assignments(
         }
     }
 
-    // Stage 3: fetch /status for each in parallel.
+    // Stage 3: resolve status + derived_status per summary in parallel.
     let list: Vec<AssignmentSummary> = stream::iter(seen.into_values())
-        .map(|mut a| async move {
-            let key = AssignmentKey {
-                year: a.year,
-                course_id: a.course_id.clone(),
-                problem_id: a.problem_id.clone(),
-            };
-            match get_status(session, &key).await {
-                Ok(s) => a.status = s,
-                Err(_) => a.status = crate::schemas::AssignmentStatus::Error,
-            }
-            a
-        })
+        .map(|a| async move { resolve_summary(session, a).await })
         .buffer_unordered(4)
         .collect()
         .await;
 
     Ok(list)
+}
+
+/// Fill `status` and `derived_status` on an `AssignmentSummary`.
+/// For `status==open` we additionally GET `/problem` and `/answers` to decide
+/// Pending vs Submitted (all pid filled = Submitted, else Pending).
+async fn resolve_summary(session: &Session, mut a: AssignmentSummary) -> AssignmentSummary {
+    let key = AssignmentKey {
+        year: a.year,
+        course_id: a.course_id.clone(),
+        problem_id: a.problem_id.clone(),
+    };
+    a.status = get_status(session, &key).await.unwrap_or(AssignmentStatus::Error);
+    a.derived_status = match a.status {
+        AssignmentStatus::Open => compute_open_derived(session, &key).await,
+        AssignmentStatus::Closed => DerivedStatus::Closed,
+        AssignmentStatus::Graded => DerivedStatus::Graded,
+        AssignmentStatus::Network => DerivedStatus::Network,
+        AssignmentStatus::Error => DerivedStatus::Error,
+        AssignmentStatus::NonPublic => DerivedStatus::NonPublic,
+    };
+    a
+}
+
+async fn compute_open_derived(session: &Session, key: &AssignmentKey) -> DerivedStatus {
+    let (html, answers) = tokio::join!(
+        get_problem_html(session, key, Lang::Ja),
+        get_answers(session, key),
+    );
+    let Ok(html) = html else { return DerivedStatus::Error };
+    let Ok(answers) = answers else { return DerivedStatus::Error };
+    let fields = parse_problem_form(&html);
+    if fields.is_empty() {
+        return DerivedStatus::Pending;
+    }
+    let all_filled = fields.iter().all(|f| is_filled(f, &answers));
+    if all_filled {
+        DerivedStatus::Submitted
+    } else {
+        DerivedStatus::Pending
+    }
+}
+
+fn is_filled(
+    f: &ProblemField,
+    answers: &std::collections::HashMap<String, crate::schemas::AnswerEntry>,
+) -> bool {
+    let pid = match f {
+        ProblemField::Textarea { pid, .. }
+        | ProblemField::Text { pid, .. }
+        | ProblemField::Radio { pid, .. }
+        | ProblemField::Checkbox { pid, .. }
+        | ProblemField::File { pid, .. } => pid,
+    };
+    let Some(entry) = answers.get(pid) else { return false };
+    match f {
+        ProblemField::File { .. } => entry.file.is_some(),
+        _ => match &entry.data {
+            Some(serde_json::Value::String(s)) => !s.is_empty(),
+            Some(serde_json::Value::Array(arr)) => !arr.is_empty(),
+            Some(serde_json::Value::Null) | None => false,
+            Some(_) => true,
+        },
+    }
 }
 
 /// Optional: fetch full page list for a lesson. Not used in MVP `course show` but

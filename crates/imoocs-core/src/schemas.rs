@@ -136,6 +136,23 @@ pub enum AssignmentStatus {
     NonPublic,
 }
 
+/// `assignment list --status <filter>` で絞るための派生ステータス。
+///
+/// - `status==open` かつ **全 pid に currentValue or uploadedFile** → Submitted
+/// - `status==open` かつ **1 つでも未入力** → Pending
+/// - それ以外は元の AssignmentStatus から対応づけ。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DerivedStatus {
+    Pending,
+    Submitted,
+    Closed,
+    Graded,
+    Network,
+    Error,
+    NonPublic,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AssignmentSummary {
@@ -144,6 +161,10 @@ pub struct AssignmentSummary {
     pub problem_id: String,
     pub page_id: String,
     pub status: AssignmentStatus,
+    /// Derived filter-friendly status (Pending/Submitted/…)
+    pub derived_status: DerivedStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lesson_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }

@@ -9,7 +9,7 @@ use imoocs_core::{
     api,
     envelope::ErrorDetail,
     paths::Paths,
-    schemas::{AssignmentKey, Lang},
+    schemas::{AssignmentKey, DerivedStatus, Lang},
     scrape::url::{self, MoocsPath},
     session::Session,
     ImoocsError,
@@ -35,11 +35,34 @@ impl From<LangArg> for Lang {
     }
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[value(rename_all = "lowercase")]
+pub enum StatusFilter {
+    Pending,
+    Submitted,
+    Closed,
+    Graded,
+    Network,
+    Error,
+    NonPublic,
+    Open,
+    All,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum AssignmentCommand {
     /// List all assignments in a course (by crawling lessons/pages).
     #[command(visible_alias = "ls")]
-    List { course_id: String },
+    List {
+        course_id: String,
+        /// Filter by lesson id (only assignments whose page is under this lesson).
+        #[arg(long)]
+        lesson: Option<String>,
+        /// Filter by derived status. `pending` = open かつ未入力。`open` = 派生前の
+        /// AssignmentStatus::Open に対応 (Pending/Submitted を合わせたもの)。`all` は無フィルタ。
+        #[arg(long, value_enum, default_value_t = StatusFilter::All)]
+        status: StatusFilter,
+    },
     /// Show a single assignment's status, fields (typed), and current answers.
     Show {
         #[arg(required_unless_present = "url")]
@@ -97,7 +120,7 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
     let session = Session::new(paths)?;
 
     match cmd {
-        AssignmentCommand::List { course_id } => {
+        AssignmentCommand::List { course_id, lesson, status } => {
             let year = match global.year {
                 Some(y) => y,
                 None => match api::resolve_latest_year(&session).await {
@@ -106,7 +129,11 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
                 },
             };
             match api::list_course_assignments(&session, year, &course_id).await {
-                Ok(v) => {
+                Ok(mut v) => {
+                    if let Some(lid) = lesson.as_deref() {
+                        v.retain(|a| a.lesson_id.as_deref() == Some(lid));
+                    }
+                    v.retain(|a| keep_by_status(a.derived_status, status));
                     output::emit_success(v, global.format);
                     Ok(ExitCode::from(0))
                 }
@@ -279,6 +306,21 @@ fn parse_data(raw: &str) -> std::result::Result<HashMap<String, Value>, ImoocsEr
         ImoocsError::Validation("--data must be a JSON object mapping pid -> value".into())
     })?;
     Ok(obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+}
+
+fn keep_by_status(d: DerivedStatus, filter: StatusFilter) -> bool {
+    match filter {
+        StatusFilter::All => true,
+        StatusFilter::Pending => d == DerivedStatus::Pending,
+        StatusFilter::Submitted => d == DerivedStatus::Submitted,
+        StatusFilter::Closed => d == DerivedStatus::Closed,
+        StatusFilter::Graded => d == DerivedStatus::Graded,
+        StatusFilter::Network => d == DerivedStatus::Network,
+        StatusFilter::Error => d == DerivedStatus::Error,
+        StatusFilter::NonPublic => d == DerivedStatus::NonPublic,
+        // `--status open` = Pending or Submitted（サーバ側 status==Open の 2 派生）
+        StatusFilter::Open => matches!(d, DerivedStatus::Pending | DerivedStatus::Submitted),
+    }
 }
 
 fn emit_err(err: ImoocsError) -> ExitCode {

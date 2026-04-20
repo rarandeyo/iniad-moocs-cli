@@ -6,7 +6,7 @@
 use scraper::Html;
 
 use crate::error::Result;
-use crate::schemas::{AssignmentSummary, Year};
+use crate::schemas::{AssignmentSummary, DerivedStatus, Year};
 use crate::util::html::parse_selector;
 
 /// Scan a single page's HTML and return any assignments present.
@@ -30,6 +30,8 @@ pub fn scrape_assignments_on_page(
             problem_id: problem_id.to_string(),
             page_id: page_id.to_string(),
             status: crate::schemas::AssignmentStatus::NonPublic,
+            derived_status: DerivedStatus::NonPublic,
+            lesson_id: None,
             title: None,
         });
     }
