@@ -7,7 +7,7 @@ pub mod doctor;
 pub mod drive;
 pub mod lesson;
 pub mod open;
-pub mod skill;
+pub mod setup;
 pub mod slide;
 pub mod version;
 
