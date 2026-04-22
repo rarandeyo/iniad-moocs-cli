@@ -114,7 +114,7 @@ tag-based enum with `type`:
 | `open` (受付中) | `pending` (未入力) or `submitted` (全 pid 埋まっている) |
 | `closed` (期間終了) | `closed` |
 | `graded` (採点済み) | `graded` |
-| `network` (学内 IP 限定) | `network` |
+| `network` (学内 IP 限定; 出席確認と一部のみ) | `network` |
 | `error` | `error` |
 | `nonpublic` (公開前) | `nonpublic` |
 

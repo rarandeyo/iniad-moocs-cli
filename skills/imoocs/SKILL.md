@@ -2,10 +2,13 @@
 name: imoocs
 description: >
   INIAD MOOCs (moocs.iniad.org) の科目・授業・課題を読み書きする Rust 製 CLI
-  `imoocs` を使うための skill。ユーザが MOOCs の URL を渡したとき、
-  授業内容を知りたがったとき、課題を解きたい/未着手課題を確認したい
-  ときに起動する。Keywords: MOOCs, INIAD, 課題, 授業, 提出, assignment,
-  submit, lesson, slide, 履修, pending, open URL.
+  `imoocs` を使うための skill。初期セットアップ (MOOCs ログイン / Google SSO /
+  診断) から、科目一覧・授業閲覧・スライド取得・Drive 配布物取得・課題の
+  下書き/提出まで通して扱う。ユーザが MOOCs の URL を渡したとき、授業内容を
+  知りたがったとき、「INIAD MOOCs のセットアップをして」「ログインしたい」
+  「課題を解きたい」「未着手課題を確認したい」などと言ったときに起動する。
+  Keywords: MOOCs, INIAD, セットアップ, 初期設定, login, setup, 課題, 授業,
+  提出, assignment, submit, lesson, slide, 履修, pending, open URL.
 allowed-tools: Bash(imoocs *)
 disable-model-invocation: false
 ---
@@ -13,20 +16,40 @@ disable-model-invocation: false
 # imoocs skill — AI agent 向け INIAD MOOCs オペレーション
 
 `imoocs` は INIAD MOOCs (`moocs.iniad.org`) を AI agent が扱える形に薄く
-ラップした CLI。全コマンドは stdout に stable JSON envelope
-`{"success": true, "data": ...}` もしくは
-`{"success": false, "error": {"code", "message", "hint"?, "details"?}}`
-を返す。進捗や警告は stderr (tracing JSON)。
+ラップした CLI。
+
+- **agent 向け verb** (`course` / `lesson` / `assignment` / `slide` /
+  `drive` / `open` / `version`) は stdout に stable JSON envelope
+  `{"success": true, "data": ...}` もしくは
+  `{"success": false, "error": {"code", "message", "hint"?, "details"?}}`
+  を返す。`--format` に関わらず常に JSON。
+- **人間向け verb** (`doctor` / `auth *` / `setup`) は default だと text
+  サマリを出す。agent からは **`--format json` (または
+  `IMOOCS_FORMAT=json`) を付けて**同じ envelope を取得すること。
+- 失敗時は verb 種別に関わらず stdout に JSON envelope (text モードでも)。
+- 進捗や警告は stderr (text モードは compact text、JSON モードは tracing JSON)。
 
 ---
 
 ## 最初にやること
 
-1. `imoocs doctor` を叩いて環境確認。`moocsAuthenticated: false` なら
-   `imoocs auth login` をユーザに促す (対話入力なので agent 単独では
-   完了しない)
-2. スライドを開く必要があると分かっている場合は `imoocs auth login-google`
-   も事前に走らせておく (keyring から username/password 流用で対話なし)
+1. `imoocs --version` でバイナリ導入を確認。未導入なら
+   `cargo install --git https://github.com/rarandeyo/iniad-moocs-cli imoocs-cli`
+   をユーザに案内 (prebuilt / AUR / Homebrew は v2 候補)。
+2. `imoocs doctor --format json` で環境確認 (agent 向けには JSON が必須。
+   素のままだと text サマリになる)。
+3. `moocsAuthenticated: false` または `googleAuthenticated: false` なら
+   `imoocs setup` をユーザに走らせてもらう。これは auth login →
+   auth login-google → doctor を順次実行するファサード。username と
+   password は対話入力なので agent 単独では完了しない。`--format json`
+   で呼ぶと `{success, data: {steps: [...], allOk}}` が返るので各 step を
+   parse して案内できる。
+   - スライド/Drive が不要で学外にいるときは `imoocs setup --skip-google`。
+   - CI / 非対話では `echo $PW | imoocs setup -u <user> --password-stdin --skip-google`。
+   - setup 中の [3/4] で提出モード (`assignment.confirm`) を選ばせる Select が出る。
+     既定は `confirm` (AI agent 経由では確定しない安全側)、agent に任せたい
+     環境では `auto` を選ぶ。後から `$XDG_CONFIG_HOME/imoocs/config.toml` で変更可。
+4. 認証が済んだ後は以降の判断フローに進む。
 
 ## 判断フロー
 
@@ -70,11 +93,15 @@ disable-model-invocation: false
 | 課題一覧 | `imoocs assignment list <c> [--lesson <l>] [--status pending\|submitted\|...]` |
 | 課題詳細 | `imoocs assignment show <c> <p>` / `--url <url>` |
 | 回答下書き | `echo '{"pid":"..."}' \| imoocs assignment answer <c> <p> --data -` |
-| 最終提出 | `imoocs assignment submit <c> <p> --yes` (force=true) |
-| ファイル提出 | `imoocs assignment upload <c> <p> --pid <pid> <path>` |
+| 最終提出 | `imoocs assignment submit <c> <p>` (実 `force` は config で決まる) |
+| ファイル提出 (下書き) | `imoocs assignment upload <c> <p> --pid <pid> <path>` |
+| ファイル提出 (確定) | `imoocs assignment upload <c> <p> --pid <pid> <path> --force` |
 | URL 自動ルーティング | `imoocs open <url>` |
 
-`--format pretty` は人間向け、デフォルトは機械可読 JSON。
+agent 向け verb (`course` / `lesson` / `assignment` / `slide` / `drive` /
+`open` / `version`) は `--format` に関係なく常に整形 JSON envelope を返す。
+人間向け verb (`doctor` / `auth *` / `setup`) のみ default が text 要約で、
+`--format json` (または `IMOOCS_FORMAT=json`) で JSON envelope に切替。
 
 ## 回答と提出の標準手順
 
@@ -89,9 +116,11 @@ disable-model-invocation: false
    - checkbox: カンマ区切り文字列 (サーバ側の仕様に合わせる)
 3. stdin で `imoocs assignment answer <c> <p> --data -` → `submitted:false` で下書き保存
 4. **ユーザに最終提出して良いか必ず確認**
-5. OK が出たら `imoocs assignment submit <c> <p> --yes` (`force=true` = 確定)
-
-`--yes` なしの `submit` は Validation エラーで exit 3 (事故防止)。
+5. OK が出たら `imoocs assignment submit <c> <p>` を実行
+   - config が `confirm = "auto"` なら即 `force=true` で確定
+   - config が `confirm = "confirm"` なら TTY に y/N prompt。non-TTY 経由
+     (agent 実行) では必ず下書き保存になり、ユーザが手元で再実行する必要あり
+   - config `assignment.confirm` 未設定時は exit 3 (明示選択を要求)
 
 ## 返り envelope の要点
 
@@ -109,9 +138,15 @@ disable-model-invocation: false
 ## 注意事項
 
 - `submit` は force=true の確定提出なので**必ずユーザ確認後**。
-- `status=network` の課題は学内 IP 限定。agent はエラー内容をユーザに
-  伝えて待機する。
+- `status=network` / `NETWORK_RESTRICTED` (exit 7) は学内 IP 限定。
+  該当するのは**出席確認課題と一部のみ**で大半の課題は学外でも可。
+  出たら学内 / VPN に繋いでから再実行するよう促す。
 - スライド PDF はページ数が多いと Read tool が重くなる。
   `pages: "1-5"` などで分割して読む。
+- スライド PDF の保存先はデフォルトで `/tmp/imoocs/slides/` (再起動で消える)。
+  恒久的に保持したいユーザには `config.toml [slides] out_dir = "cache"` を
+  案内、1 回だけ別の場所に置きたいなら `imoocs slide fetch --out-dir <cache|tmp|PATH>`。
 - 認証情報は OS keyring に保存されているので、Bash で
-  `--password-stdin` や `--unmasked` を安易に渡さない。
+  `--password-stdin` を安易に渡さない (CI / automation 専用)。
+  `imoocs auth export` は username と「keyring に保存されているか」だけを
+  text で返し、password 本体は CLI から決して出力されない。

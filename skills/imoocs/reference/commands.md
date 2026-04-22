@@ -3,10 +3,48 @@
 グローバルフラグはすべて `IMOOCS_*` env に対応。
 
 ```
-imoocs [--format json|pretty|ndjson] [--quiet] [--debug]
+imoocs [--format text|json] [--quiet] [--debug]
        [--year <YYYY>] [--yes]
        <command> ...
 ```
+
+`--format` は 2 値:
+
+- `text` (default) — 人間向け verb (`doctor` / `auth *` / `setup`) は stdout
+  に短い text サマリを出し、stderr に進捗行を流す。agent 向け verb は
+  `text` を指定しても**常に整形 JSON envelope** を返す (構造化データを
+  text 化する意味がないため)。
+- `json` — human-facing verb も含めて**整形 JSON envelope** を返す。
+  agent / CI で `doctor` / `auth *` / `setup` を叩くときは常にこれを使う。
+
+`IMOOCS_FORMAT=json` でも global に切替可能。
+
+## 初期セットアップ
+
+### `imoocs setup [--username <u>] [--password-stdin] [--skip-google]`
+MOOCs ログイン → Google SSO → doctor を順次実行するファサード。成功時の
+envelope:
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "steps": [
+      { "step": "authLogin",       "status": "ok",      "details": { "username": "s1f10..." } },
+      { "step": "authLoginGoogle", "status": "ok",      "details": { "username": "s1f10..." } },
+      { "step": "doctor",          "status": "ok",      "details": { "moocsAuthenticated": true, "googleAuthenticated": true } }
+    ],
+    "allOk": true
+  }
+}
+```
+
+失敗時は `{success:false, error: {code, message, hint?, details: <SetupReport>}}`。
+`error.details.steps` から失敗 step を特定でき、exit code は失敗 step の
+コードを流用 (Auth=2 / Validation=3 / Internal=5 等)。
+
+`--skip-google` は `authLoginGoogle` を `status:"skipped"` で省略。
+`--password-stdin` は stdin から 1 行読んで keyring に保存し対話を回避。
 
 ## 認証
 
@@ -20,9 +58,18 @@ Google Workspace の SAML ログイン (スライド PDF 取得に必要)。MOOC
 の keyring password を流用するので追加入力なし。
 
 ### `imoocs auth status` / `imoocs auth logout` / `imoocs auth export`
-`status` は `{moocsAuthenticated, googleAuthenticated, username, ...}` を
-返す。未認証時は exit 2。`logout` は keyring entry と cookies.json を削除。
-`export` は config と keyring の状態表示 (デフォルト masked)。
+auth サブコマンドは envelope を返さず、常に text サマリを stdout に出す。
+agent は **exit code** と必要なら stderr の失敗行で分岐する。
+
+- `status`: MOOCs / Google SSO / keyring 状態をチェックリストで表示。
+  MOOCs 未ログインは exit 2、ログイン済は 0。構造化情報が欲しい場合は
+  `imoocs doctor --format json` (`moocsAuthenticated` / `googleAuthenticated`)。
+- `logout`: keyring entry と `cookies.json` を削除 (`--keep-config` で
+  `config.toml` は温存)。exit 0。
+- `export`: `username: ...` / `password: stored in OS keyring (...)` の
+  2 行を出す。password 本体は CLI から**絶対に出力されない**。keyring
+  から取り出したい場合は OS のキーリング管理ツール (macOS Keychain
+  Access / GNOME Seahorse / Windows Credential Manager) を直接使う。
 
 ## コース / 授業 / スライド
 
@@ -44,8 +91,24 @@ Google Workspace の SAML ログイン (スライド PDF 取得に必要)。MOOC
   展開、`{lesson, assignments: [AssignmentDetail, ...]}` を返す
 - `--url <url>` は positional の代わりに MOOCs URL で指定
 
-### `imoocs slide fetch <embedUrl> [--out <path>] [--no-cache]`
+### `imoocs slide fetch <embedUrl> [--out-dir <cache|tmp|PATH>] [--no-cache]`
 任意の pubembed URL を指定して単独で PDF 生成。24h TTL キャッシュ。
+
+**保存先** のデフォルトは `/tmp/imoocs/slides/<sha1(embedUrl)>.pdf` (OS の
+一時領域に置いて再起動時に OS 掃除に任せる)。変更する場合:
+
+- **一時的**: `--out-dir <cache|tmp|PATH>` で上書き (この呼び出しのみ)
+- **恒久的**: `$XDG_CONFIG_HOME/imoocs/config.toml` に以下を追加
+  ```toml
+  [slides]
+  out_dir = "cache"   # "cache" | "tmp" | 絶対パス
+  ```
+  - `"cache"` → `$XDG_CACHE_HOME/imoocs/slides/`
+  - `"tmp"`   → `/tmp/imoocs/slides/` (default)
+  - 絶対パス → そのディレクトリ
+
+`imoocs lesson show --fetch-slides` / `imoocs open --fetch-slides` も同じ
+解決ルールに従う (これらには `--out-dir` フラグは無く、config のみ参照)。
 
 ## Drive 配布物
 
@@ -100,12 +163,32 @@ nonpublic | open | all` (デフォルト `all`、`open` = Pending+Submitted)。
 `--data '{"p1":"x"}'` / `--data @file.json` / `--data -` (stdin) の 3 形式。
 `submitted:false` で下書き (force なし)。
 
-### `imoocs assignment submit <c> <p> [--data ...] --yes`
-`--yes` 必須。force=true で PUT、`submitted:true`。data 省略時は
-サーバ現行値のまま確定。
+### `imoocs assignment submit <c> <p> [--data ...]`
+「確定したい」という意思表示。実際に `force=true` で PUT されるかは
+config `[assignment] confirm` による (下表)。data 省略時はサーバ現行値の
+まま確定する意思を示す。`-y/--yes` フラグは存在しない。
 
 ### `imoocs assignment upload <c> <p> --pid <pid> <file> [--force]`
-multipart POST。`--force` で同時確定。
+multipart POST。`--force` は「確定したい」意思表示で、実際のサーバ送信
+`force` は config `[assignment] confirm` で決まる。`--force` なしは常に
+下書き (force=false)。
+
+### 確定モード表 (`[assignment] confirm`)
+
+| mode | `submit` / `upload --force` |
+|---|---|
+| 未設定 | exit 3 `"config assignment.confirm is not set"` |
+| `"auto"` | 常に `force=true` (AI agent を信頼) |
+| `"confirm"` | TTY で `y` を押したときだけ `force=true`。n / 非TTY はすべて `force=false` で下書き保存 (stderr に notice) |
+
+`confirm` モードでは非 TTY から確定させる手段が無いのが中核。AI agent
+経由の最終提出は人間レビューを通るまで先延ばしされる。設定は
+`imoocs setup` の [3/4] プロンプトで選ぶか、`$XDG_CONFIG_HOME/imoocs/config.toml` を直接編集:
+
+```toml
+[assignment]
+confirm = "auto"    # または "confirm"
+```
 
 ## URL 1 本で操作
 
@@ -125,9 +208,10 @@ cacheDir, username}`。exit 2 if not authenticated.
 ### `imoocs completion <bash|zsh|fish|powershell|elvish>`
 補完スクリプトを stdout に書き出す。
 
-### `imoocs skill install [--user|--project]`
-埋め込み済みの `skills/imoocs/` を `~/.claude/skills/imoocs/` (user) か
-カレントの `.claude/skills/imoocs/` (project) にコピー。
+Skill 配信は CLI 側のサブコマンドではなく、GitHub CLI の
+`gh skill install rarandeyo/iniad-moocs-cli skills/imoocs --agent <host> --scope <user|project>`
+に委譲する (agentskills.io open standard 準拠; Claude Code / Cursor /
+Copilot / Codex / Gemini CLI / Antigravity 共通)。
 
 ## Exit code 一覧
 
@@ -140,4 +224,4 @@ cacheDir, username}`。exit 2 if not authenticated.
 | 4 | not found |
 | 5 | internal (バグ想定) |
 | 6 | network error (接続/タイムアウト) |
-| 7 | NETWORK_RESTRICTED (学内 IP 限定) |
+| 7 | NETWORK_RESTRICTED (学内 IP 限定; 出席確認と一部のみ) |
