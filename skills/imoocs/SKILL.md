@@ -117,7 +117,8 @@ MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返
 1. URL があれば `imoocs open <url>`。レッスンページなら `type: "lesson"` が返り、`markdown` 本文 + `embeds[]` + `assignments[]` が同梱される。
 2. スライドを PDF で欲しいと言われたら `imoocs lesson show <courseId> <lessonId> --fetch-slides` か、単発で `imoocs slide fetch <embedUrl>` を叩く。保存先は config / `--out-dir` で `/tmp/imoocs/slides/` (default) / `cache` / 絶対パスから選べる。
 3. PDF パスは `embeds[*].localPdfPath` に載る。必要なら Read tool で開いて読める (Linux なら `poppler-utils` が要る; 大きい場合は `pages` 指定で分割読み)。
-4. Drive 添付 (`embeds[*].type == "google-drive"`) をローカルに落とすなら `imoocs drive fetch <fileId>`。Google ネイティブ形式 (Docs/Sheets/Slides) は現状 API 経由で落とせないので、UI リンクをユーザに案内する。
+4. **スライドだけで要約が作れないときは Drive 添付も見る**。INIAD では本編コードや配布資料を Google Drive の zip (`ai-s02.zip` など) で配る運用があり、スライド PDF 側は「JupyterLab を起動して〜」の受講準備だけ、ということがある。そのときは同レッスンの `embeds[]` に `type: "google-drive"` のエントリがあるか確認し、あれば `imoocs drive fetch <fileId>` で落として展開してから内容を要約する。スライドの見た目が薄いのを「資料未公開」と早合点しない。
+5. Drive ネイティブ形式 (Docs/Sheets/Slides) は現状 API 経由で落とせないので、UI リンクをユーザに案内する。
 
 ## 落とし穴 (必ず守ること)
 
