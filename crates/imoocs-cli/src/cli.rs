@@ -10,7 +10,7 @@ use crate::output::OutputMode;
     name = "imoocs",
     version,
     about = "Unofficial CLI for INIAD MOOCs, designed for AI agents.",
-    infer_subcommands = true,
+    infer_subcommands = true
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -23,8 +23,13 @@ pub struct Cli {
 #[derive(Debug, Args)]
 #[command(next_help_heading = "Global options")]
 pub struct GlobalArgs {
-    /// Output format.
-    #[arg(long, value_enum, default_value_t = OutputMode::Json, env = "IMOOCS_FORMAT", global = true)]
+    /// Output format. Default: `text`. Human-facing verbs (`doctor`,
+    /// `setup`) render a human-readable summary; pass `--format json` to
+    /// get a pretty JSON envelope instead. Agent-facing verbs always emit
+    /// a pretty JSON envelope regardless of this flag. `auth *` is
+    /// text-only and ignores this flag — use exit codes (and
+    /// `imoocs doctor --format json` for structured state) instead.
+    #[arg(long, value_enum, default_value_t = OutputMode::Text, env = "IMOOCS_FORMAT", global = true)]
     pub format: OutputMode,
 
     /// Disable progress output to stderr.

@@ -9,7 +9,7 @@ mod output;
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = cli::Cli::parse();
-    output::init_tracing(args.global.debug, args.global.quiet);
+    output::init_tracing(args.global.debug, args.global.quiet, args.global.format);
 
     match cli::run(args).await {
         Ok(code) => code,

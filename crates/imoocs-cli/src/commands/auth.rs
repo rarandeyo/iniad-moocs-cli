@@ -6,19 +6,14 @@ use dialoguer::{Input, Password};
 use imoocs_core::{
     auth::{is_logged_in_google, is_logged_in_moocs, login_google, login_moocs, Credentials},
     config::Config,
-    envelope::ErrorDetail,
     keyring,
     paths::Paths,
     session::Session,
     ImoocsError,
 };
-use serde::Serialize;
-use schemars::JsonSchema;
-use serde_json::json;
 use tracing::info;
 
 use crate::cli::GlobalArgs;
-use crate::output;
 
 #[derive(Debug, Subcommand)]
 pub enum AuthCommand {
@@ -39,88 +34,39 @@ pub enum AuthCommand {
         #[arg(long)]
         keep_config: bool,
     },
-    /// Report authentication state as JSON.
+    /// Report authentication state. Exit 0 when logged in to MOOCs, 2 otherwise.
     Status,
-    /// Print stored username (and keyring status). Useful for debugging.
-    Export {
-        /// Include the stored password in plaintext (DO NOT commit output).
-        #[arg(long)]
-        unmasked: bool,
-    },
+    /// Print stored username and whether a keyring entry exists.
+    /// The password itself is never printed — inspect the OS keyring
+    /// directly (macOS Keychain / GNOME Keyring / Windows Credential Manager)
+    /// if you need to recover it.
+    Export,
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-struct AuthStatus {
-    moocs_authenticated: bool,
-    google_authenticated: bool,
-    username: Option<String>,
-    has_stored_password: bool,
-    cookies_path: std::path::PathBuf,
-    config_path: std::path::PathBuf,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-struct AuthExport {
-    username: Option<String>,
-    password: Option<String>,
-    note: Option<String>,
-}
-
-pub async fn run(global: &GlobalArgs, cmd: AuthCommand) -> Result<ExitCode> {
+pub async fn run(_global: &GlobalArgs, cmd: AuthCommand) -> Result<ExitCode> {
     match cmd {
-        AuthCommand::Login { username, password_stdin } => login(global, username, password_stdin).await,
-        AuthCommand::LoginGoogle => login_google_cmd(global).await,
-        AuthCommand::Logout { keep_config } => logout(global, keep_config).await,
-        AuthCommand::Status => status(global).await,
-        AuthCommand::Export { unmasked } => export(global, unmasked).await,
+        AuthCommand::Login {
+            username,
+            password_stdin,
+        } => login(username, password_stdin).await,
+        AuthCommand::LoginGoogle => login_google_cmd().await,
+        AuthCommand::Logout { keep_config } => logout(keep_config).await,
+        AuthCommand::Status => status().await,
+        AuthCommand::Export => export().await,
     }
 }
 
-async fn login_google_cmd(global: &GlobalArgs) -> Result<ExitCode> {
-    let paths = Paths::discover()?;
-    let cfg = Config::load(&paths.config_file())?;
-    let Some(username) = cfg.username.clone() else {
-        let err = ImoocsError::Validation(
-            "no stored username; run `imoocs auth login` first".into(),
-        );
-        output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
-        return Ok(ExitCode::from(err.exit_code().as_u8()));
-    };
-    let Some(password) = keyring::get_password(&username)? else {
-        let err = ImoocsError::Validation(
-            "no password in keyring; run `imoocs auth login` first".into(),
-        );
-        output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
-        return Ok(ExitCode::from(err.exit_code().as_u8()));
-    };
-
-    let session = Session::new(paths.clone_paths())?;
-    let creds = Credentials {
-        username: username.clone(),
-        password,
-    };
-    match login_google(&session, &creds).await {
-        Ok(()) => {
-            output::emit_success(
-                json!({ "googleAuthenticated": true, "username": username }),
-                global.format,
-            );
-            Ok(ExitCode::from(0))
-        }
-        Err(err) => {
-            output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
-            Ok(ExitCode::from(err.exit_code().as_u8()))
-        }
-    }
+/// `auth login` の business logic。envelope emit を含まず `ImoocsError` を
+/// そのまま返すので、`imoocs setup` 等のファサードから再利用できる。
+#[derive(Debug)]
+pub struct LoginOutcome {
+    pub username: String,
 }
 
-async fn login(
-    global: &GlobalArgs,
+pub async fn do_login(
     username_arg: Option<String>,
     password_stdin: bool,
-) -> Result<ExitCode> {
+) -> std::result::Result<LoginOutcome, ImoocsError> {
     use std::io::Read;
 
     let paths = Paths::discover()?;
@@ -131,7 +77,8 @@ async fn login(
         Some(u) => u,
         None => Input::<String>::new()
             .with_prompt("INIAD username (e.g. s1f10XXXXXXX)")
-            .interact_text()?,
+            .interact_text()
+            .map_err(map_dialoguer_err)?,
     };
 
     // Password: --password-stdin > keyring > prompt.
@@ -145,7 +92,10 @@ async fn login(
         match keyring::get_password(&username)? {
             Some(p) => p,
             None => {
-                let p: String = Password::new().with_prompt("INIAD password").interact()?;
+                let p: String = Password::new()
+                    .with_prompt("INIAD password")
+                    .interact()
+                    .map_err(map_dialoguer_err)?;
                 keyring::set_password(&username, &p)?;
                 p
             }
@@ -163,26 +113,65 @@ async fn login(
             cfg.username = Some(username.clone());
             cfg.save(&paths.config_file())?;
             info!("authenticated as {}", username);
-            output::emit_success(
-                json!({ "authenticated": true, "username": username }),
-                global.format,
-            );
-            Ok(ExitCode::from(0))
+            Ok(LoginOutcome { username })
         }
         Err(err @ ImoocsError::Auth { .. }) => {
             // Wipe stored password so the next attempt re-prompts.
             let _ = keyring::delete_credential(&username);
-            output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
-            Ok(ExitCode::from(err.exit_code().as_u8()))
+            Err(err)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// `auth login-google` の business logic。成功時は SAML セッションが確立した
+/// 対象 username を返す。
+pub async fn do_login_google() -> std::result::Result<String, ImoocsError> {
+    let paths = Paths::discover()?;
+    let cfg = Config::load(&paths.config_file())?;
+    let username = cfg
+        .username
+        .clone()
+        .ok_or_else(|| ImoocsError::Validation("no stored username; run `imoocs auth login` first".into()))?;
+    let password = keyring::get_password(&username)?
+        .ok_or_else(|| ImoocsError::Validation("no password in keyring; run `imoocs auth login` first".into()))?;
+
+    let session = Session::new(paths.clone_paths())?;
+    let creds = Credentials {
+        username: username.clone(),
+        password,
+    };
+    login_google(&session, &creds).await?;
+    Ok(username)
+}
+
+async fn login_google_cmd() -> Result<ExitCode> {
+    match do_login_google().await {
+        Ok(username) => {
+            println!("Google SSO session established for {username}.");
+            Ok(ExitCode::from(0))
         }
         Err(err) => {
-            output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
+            eprintln!("✗ Google SSO 失敗: {err}");
             Ok(ExitCode::from(err.exit_code().as_u8()))
         }
     }
 }
 
-async fn logout(global: &GlobalArgs, keep_config: bool) -> Result<ExitCode> {
+async fn login(username_arg: Option<String>, password_stdin: bool) -> Result<ExitCode> {
+    match do_login(username_arg, password_stdin).await {
+        Ok(outcome) => {
+            println!("Logged in as {}.", outcome.username);
+            Ok(ExitCode::from(0))
+        }
+        Err(err) => {
+            eprintln!("✗ ログイン失敗: {err}");
+            Ok(ExitCode::from(err.exit_code().as_u8()))
+        }
+    }
+}
+
+async fn logout(keep_config: bool) -> Result<ExitCode> {
     let paths = Paths::discover()?;
     let cfg = Config::load(&paths.config_file())?;
 
@@ -197,12 +186,11 @@ async fn logout(global: &GlobalArgs, keep_config: bool) -> Result<ExitCode> {
         Config::clear(&paths.config_file())?;
     }
 
-    output::emit_success(json!({ "loggedOut": true }), global.format);
-    let _ = global; // silence unused warning when emit_success above uses it
+    println!("Logged out. keyring and cookies cleared.");
     Ok(ExitCode::from(0))
 }
 
-async fn status(global: &GlobalArgs) -> Result<ExitCode> {
+async fn status() -> Result<ExitCode> {
     let paths = Paths::discover()?;
     let cfg = Config::load(&paths.config_file())?;
     let session = Session::new(paths.clone_paths())?;
@@ -215,46 +203,45 @@ async fn status(global: &GlobalArgs) -> Result<ExitCode> {
         .map(|u| keyring::get_password(u).ok().flatten().is_some())
         .unwrap_or(false);
 
-    let data = AuthStatus {
-        moocs_authenticated: moocs_auth,
-        google_authenticated: google_auth,
-        username: cfg.username,
-        has_stored_password: has_pw,
-        cookies_path: paths.cookies_file(),
-        config_path: paths.config_file(),
-    };
-    output::emit_success(data, global.format);
+    let user = cfg.username.as_deref().unwrap_or("-");
+    println!("  {} MOOCs login        ({user})", mark(moocs_auth));
+    println!("  {} Google SSO", mark(google_auth));
+    println!("  {} password stored in keyring", mark(has_pw));
+    println!("Paths");
+    println!("  cookies  {}", paths.cookies_file().display());
+    println!("  config   {}", paths.config_file().display());
     Ok(ExitCode::from(if moocs_auth { 0 } else { 2 }))
 }
 
-async fn export(global: &GlobalArgs, unmasked: bool) -> Result<ExitCode> {
+async fn export() -> Result<ExitCode> {
     let paths = Paths::discover()?;
     let cfg = Config::load(&paths.config_file())?;
 
-    let username = cfg.username.clone();
-    let password = username.as_deref().and_then(|u| keyring::get_password(u).ok().flatten());
+    let user = cfg.username.as_deref().unwrap_or("-");
+    let has_stored_password = cfg
+        .username
+        .as_deref()
+        .map(|u| keyring::get_password(u).ok().flatten().is_some())
+        .unwrap_or(false);
 
-    let (password_field, note) = match (password, unmasked) {
-        (Some(p), true) => (Some(p), Some("password printed unmasked".into())),
-        (Some(p), false) => (Some(mask(&p)), Some("password masked; re-run with --unmasked to show".into())),
-        (None, _) => (None, Some("no password stored in OS keyring".into())),
+    println!("username: {user}");
+    let pw_line = if has_stored_password {
+        "stored in OS keyring (never printed by this CLI)"
+    } else {
+        "not stored"
     };
-
-    output::emit_success(
-        AuthExport {
-            username,
-            password: password_field,
-            note,
-        },
-        global.format,
-    );
+    println!("password: {pw_line}");
     Ok(ExitCode::from(0))
 }
 
-fn mask(s: &str) -> String {
-    if s.len() <= 4 {
-        "***".into()
+fn mark(ok: bool) -> &'static str {
+    if ok {
+        "✓"
     } else {
-        format!("{}***{}", &s[..2], &s[s.len() - 2..])
+        "✗"
     }
+}
+
+pub(crate) fn map_dialoguer_err(e: dialoguer::Error) -> ImoocsError {
+    ImoocsError::Internal(format!("prompt failed: {e}"))
 }
