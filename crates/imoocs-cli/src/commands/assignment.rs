@@ -7,6 +7,7 @@ use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
 use imoocs_core::{
     api,
+    config::Config,
     envelope::ErrorDetail,
     paths::Paths,
     schemas::{AssignmentKey, DerivedStatus, Lang},
@@ -17,6 +18,7 @@ use imoocs_core::{
 use serde_json::{json, Value};
 
 use crate::cli::GlobalArgs;
+use crate::commands::confirm::{self, DestructiveAction};
 use crate::output;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -107,7 +109,12 @@ pub enum AssignmentCommand {
         /// The problem field id for the file.
         #[arg(long)]
         pid: String,
-        file: PathBuf,
+        /// Local file path to upload. Marked conditionally-required so clap's
+        /// positional-ordering assert doesn't fire against the Option<String>
+        /// course/problem positionals above; a runtime check below ensures it
+        /// is still present.
+        #[arg(required_unless_present = "url")]
+        file: Option<PathBuf>,
         #[arg(long)]
         force: bool,
         #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
@@ -120,7 +127,11 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
     let session = Session::new(paths)?;
 
     match cmd {
-        AssignmentCommand::List { course_id, lesson, status } => {
+        AssignmentCommand::List {
+            course_id,
+            lesson,
+            status,
+        } => {
             let year = match global.year {
                 Some(y) => y,
                 None => match api::resolve_latest_year(&session).await {
@@ -186,12 +197,6 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             data,
             url,
         } => {
-            if !global.yes {
-                let err = ImoocsError::Validation(
-                    "`assignment submit` requires --yes (force=true finalises the submission)".into(),
-                );
-                return Ok(emit_err(err));
-            }
             let key = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
                 Ok(k) => k,
                 Err(e) => return Ok(emit_err(e)),
@@ -203,7 +208,21 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
                 },
                 None => HashMap::new(),
             };
-            match api::put_answers(&session, &key, parsed, true).await {
+            let cfg = match Config::load(&session.paths.config_file()) {
+                Ok(c) => c,
+                Err(e) => return Ok(emit_err(e)),
+            };
+            let force = match confirm::resolve_force(
+                &cfg,
+                &DestructiveAction::Submit {
+                    course: &key.course_id,
+                    problem: &key.problem_id,
+                },
+            ) {
+                Ok(f) => f,
+                Err(e) => return Ok(emit_err(e)),
+            };
+            match api::put_answers(&session, &key, parsed, force).await {
                 Ok(v) => {
                     output::emit_success(v, global.format);
                     Ok(ExitCode::from(0))
@@ -219,13 +238,37 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             force,
             url,
         } => {
+            let file = match file {
+                Some(p) => p,
+                None => {
+                    return Ok(emit_err(ImoocsError::Validation(
+                        "`assignment upload` requires a file path".into(),
+                    )));
+                }
+            };
             let key = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
                 Ok(k) => k,
                 Err(e) => return Ok(emit_err(e)),
             };
-            match api::post_file(&session, &key, &pid, &file, force).await {
+            let effective_force = if force {
+                let cfg = match Config::load(&session.paths.config_file()) {
+                    Ok(c) => c,
+                    Err(e) => return Ok(emit_err(e)),
+                };
+                let filename = file.file_name().and_then(|s| s.to_str()).unwrap_or("file");
+                match confirm::resolve_force(&cfg, &DestructiveAction::UploadForce { pid: &pid, filename }) {
+                    Ok(f) => f,
+                    Err(e) => return Ok(emit_err(e)),
+                }
+            } else {
+                false
+            };
+            match api::post_file(&session, &key, &pid, &file, effective_force).await {
                 Ok(()) => {
-                    output::emit_success(json!({ "ok": true, "pid": pid }), global.format);
+                    output::emit_success(
+                        json!({ "ok": true, "pid": pid, "finalised": effective_force }),
+                        global.format,
+                    );
                     Ok(ExitCode::from(0))
                 }
                 Err(e) => Ok(emit_err(e)),
@@ -246,12 +289,17 @@ async fn resolve_key(
 ) -> std::result::Result<AssignmentKey, ImoocsError> {
     if let Some(u) = url {
         let (year, course_id, lesson_id, page_id) = match url::parse(u) {
-            Some(MoocsPath::Page { year, course_id, lesson_id, page_id }) => {
-                (year, course_id, lesson_id, Some(page_id))
-            }
-            Some(MoocsPath::Lesson { year, course_id, lesson_id }) => {
-                (year, course_id, lesson_id, None)
-            }
+            Some(MoocsPath::Page {
+                year,
+                course_id,
+                lesson_id,
+                page_id,
+            }) => (year, course_id, lesson_id, Some(page_id)),
+            Some(MoocsPath::Lesson {
+                year,
+                course_id,
+                lesson_id,
+            }) => (year, course_id, lesson_id, None),
             _ => {
                 return Err(ImoocsError::Validation(format!(
                     "URL does not point to a lesson/page: {u}"
@@ -295,16 +343,15 @@ fn parse_data(raw: &str) -> std::result::Result<HashMap<String, Value>, ImoocsEr
             .map_err(|e| ImoocsError::Validation(format!("cannot read stdin: {e}")))?;
         buf
     } else if let Some(path) = raw.strip_prefix('@') {
-        std::fs::read_to_string(path)
-            .map_err(|e| ImoocsError::Validation(format!("cannot read {path}: {e}")))?
+        std::fs::read_to_string(path).map_err(|e| ImoocsError::Validation(format!("cannot read {path}: {e}")))?
     } else {
         raw.to_string()
     };
     let v: Value = serde_json::from_str(body.trim())
         .map_err(|e| ImoocsError::Validation(format!("invalid JSON in --data: {e}")))?;
-    let obj = v.as_object().ok_or_else(|| {
-        ImoocsError::Validation("--data must be a JSON object mapping pid -> value".into())
-    })?;
+    let obj = v
+        .as_object()
+        .ok_or_else(|| ImoocsError::Validation("--data must be a JSON object mapping pid -> value".into()))?;
     Ok(obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
 }
 

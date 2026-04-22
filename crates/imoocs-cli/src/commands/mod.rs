@@ -1,6 +1,7 @@
 pub mod assignment;
 pub mod auth;
 pub mod completion;
+pub mod confirm;
 pub mod course;
 pub mod doctor;
 pub mod drive;

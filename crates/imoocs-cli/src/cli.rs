@@ -42,10 +42,6 @@ pub struct GlobalArgs {
     /// Override year (default: latest; resolved from MOOCs redirect).
     #[arg(long, env = "IMOOCS_YEAR", global = true)]
     pub year: Option<u32>,
-
-    /// Auto-confirm write operations. Required for `assignment submit`.
-    #[arg(long, short = 'y', env = "IMOOCS_YES", global = true)]
-    pub yes: bool,
 }
 
 #[derive(Debug, Subcommand)]
