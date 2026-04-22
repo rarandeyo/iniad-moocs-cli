@@ -15,6 +15,18 @@ pub struct Config {
     pub username: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub year: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slides: Option<SlidesConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SlidesConfig {
+    /// Where to store downloaded slide PDFs. Accepts:
+    /// - `"cache"` → `$XDG_CACHE_HOME/imoocs/slides/`
+    /// - `"tmp"`   → `/tmp/imoocs/slides/` (default; auto-cleaned by the OS)
+    /// - absolute path (e.g. `"/home/me/slides"`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub out_dir: Option<String>,
 }
 
 impl Config {
