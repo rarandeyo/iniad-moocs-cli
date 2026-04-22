@@ -4,14 +4,10 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::Subcommand;
 use imoocs_core::{
-    api::slides::fetch_slide_pdf_with_dump,
-    envelope::ErrorDetail,
-    paths::Paths,
-    session::Session,
-    ImoocsError,
+    api::slides::fetch_slide_pdf_with_dump, envelope::ErrorDetail, paths::Paths, session::Session, ImoocsError,
 };
-use serde::Serialize;
 use schemars::JsonSchema;
+use serde::Serialize;
 
 use crate::cli::GlobalArgs;
 use crate::output;
@@ -19,13 +15,15 @@ use crate::output;
 #[derive(Debug, Subcommand)]
 pub enum SlideCommand {
     /// Download a Google Slides pubembed and write a merged PDF to the cache
-    /// (or a custom path via `--out`). Returns the local path.
+    /// directory. Returns the local path.
     Fetch {
         /// The iframe `src` from a lesson page (usually `docs.google.com/.../pubembed`).
         embed_url: String,
-        /// Copy the resulting PDF to this path in addition to caching.
+        /// Override the slide cache directory for this call. Accepts
+        /// `cache`, `tmp`, or an absolute path. Falls back to
+        /// `config.toml [slides] out_dir`, then the built-in default (`tmp`).
         #[arg(long)]
-        out: Option<PathBuf>,
+        out_dir: Option<String>,
         /// Force re-download even when the cache is fresh.
         #[arg(long)]
         no_cache: bool,
@@ -48,28 +46,21 @@ struct FetchReport {
 
 pub async fn run(global: &GlobalArgs, cmd: SlideCommand) -> Result<ExitCode> {
     let paths = Paths::discover()?;
-    let session = Session::new(paths.clone_paths())?;
 
     match cmd {
-        SlideCommand::Fetch { embed_url, out, no_cache, dump_svgs } => {
-            match fetch_slide_pdf_with_dump(
-                &session,
-                &paths,
-                &embed_url,
-                no_cache,
-                dump_svgs.as_deref(),
-            )
-            .await
-            {
+        SlideCommand::Fetch {
+            embed_url,
+            out_dir,
+            no_cache,
+            dump_svgs,
+        } => {
+            let paths = match super::apply_slides_config(paths, out_dir.as_deref()) {
+                Ok(p) => p,
+                Err(e) => return Ok(emit_err(e)),
+            };
+            let session = Session::new(paths.clone_paths())?;
+            match fetch_slide_pdf_with_dump(&session, &paths, &embed_url, no_cache, dump_svgs.as_deref()).await {
                 Ok(res) => {
-                    if let Some(dest) = out {
-                        if let Some(parent) = dest.parent() {
-                            let _ = std::fs::create_dir_all(parent);
-                        }
-                        if let Err(e) = std::fs::copy(&res.local_pdf_path, &dest) {
-                            return Ok(emit_err(ImoocsError::Io(e)));
-                        }
-                    }
                     output::emit_success(
                         FetchReport {
                             embed_url,

@@ -33,15 +33,16 @@ pub struct OpenArgs {
 
 pub async fn run(global: &GlobalArgs, args: OpenArgs) -> Result<ExitCode> {
     let paths = Paths::discover()?;
+    let paths = match super::apply_slides_config(paths, None) {
+        Ok(p) => p,
+        Err(e) => return Ok(emit_err(e)),
+    };
     let session = Session::new(paths.clone_paths())?;
 
     let path = match url::parse(&args.url) {
         Some(p) => p,
         None => {
-            let err = ImoocsError::Validation(format!(
-                "not a MOOCs URL I can route: {url}",
-                url = args.url
-            ));
+            let err = ImoocsError::Validation(format!("not a MOOCs URL I can route: {url}", url = args.url));
             return Ok(emit_err(err));
         }
     };
@@ -54,10 +55,7 @@ pub async fn run(global: &GlobalArgs, args: OpenArgs) -> Result<ExitCode> {
             };
             match api::get_course_list(&session, Some(year)).await {
                 Ok(list) => {
-                    output::emit_success(
-                        OpenResult::Courses { year, courses: list },
-                        global.format,
-                    );
+                    output::emit_success(OpenResult::Courses { year, courses: list }, global.format);
                     Ok(ExitCode::from(0))
                 }
                 Err(e) => Ok(emit_err(e)),
@@ -65,43 +63,37 @@ pub async fn run(global: &GlobalArgs, args: OpenArgs) -> Result<ExitCode> {
         }
         MoocsPath::Year(year) => match api::get_course_list(&session, Some(year)).await {
             Ok(list) => {
-                output::emit_success(
-                    OpenResult::Courses { year, courses: list },
-                    global.format,
-                );
+                output::emit_success(OpenResult::Courses { year, courses: list }, global.format);
                 Ok(ExitCode::from(0))
             }
             Err(e) => Ok(emit_err(e)),
         },
-        MoocsPath::Course { year, course_id } => {
-            match api::get_course_detail(&session, year, &course_id).await {
-                Ok(detail) => {
-                    output::emit_success(OpenResult::Course(detail), global.format);
-                    Ok(ExitCode::from(0))
-                }
-                Err(e) => Ok(emit_err(e)),
+        MoocsPath::Course { year, course_id } => match api::get_course_detail(&session, year, &course_id).await {
+            Ok(detail) => {
+                output::emit_success(OpenResult::Course(detail), global.format);
+                Ok(ExitCode::from(0))
             }
-        }
+            Err(e) => Ok(emit_err(e)),
+        },
         MoocsPath::Lesson { .. } | MoocsPath::Page { .. } => {
             let (year, course_id, lesson_id, page_id) = match path {
-                MoocsPath::Lesson { year, course_id, lesson_id } => {
-                    (year, course_id, lesson_id, None)
-                }
-                MoocsPath::Page { year, course_id, lesson_id, page_id } => {
-                    (year, course_id, lesson_id, Some(page_id))
-                }
+                MoocsPath::Lesson {
+                    year,
+                    course_id,
+                    lesson_id,
+                } => (year, course_id, lesson_id, None),
+                MoocsPath::Page {
+                    year,
+                    course_id,
+                    lesson_id,
+                    page_id,
+                } => (year, course_id, lesson_id, Some(page_id)),
                 _ => unreachable!(),
             };
             let lang: Lang = args.lang.into();
-            let result = api::get_lesson_with_assignments(
-                &session,
-                year,
-                &course_id,
-                &lesson_id,
-                page_id.as_deref(),
-                lang,
-            )
-            .await;
+            let result =
+                api::get_lesson_with_assignments(&session, year, &course_id, &lesson_id, page_id.as_deref(), lang)
+                    .await;
             let mut with = match result {
                 Ok(w) => w,
                 Err(e) => return Ok(emit_err(e)),

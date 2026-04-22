@@ -57,6 +57,10 @@ struct Target {
 
 pub async fn run(global: &GlobalArgs, cmd: LessonCommand) -> Result<ExitCode> {
     let paths = Paths::discover()?;
+    let paths = match super::apply_slides_config(paths, None) {
+        Ok(p) => p,
+        Err(e) => return Ok(emit_err(e)),
+    };
     let session = Session::new(paths.clone_paths())?;
 
     match cmd {
@@ -128,13 +132,22 @@ async fn resolve_target(
 ) -> std::result::Result<Target, ImoocsError> {
     if let Some(u) = url {
         return match url::parse(u) {
-            Some(MoocsPath::Lesson { year, course_id, lesson_id }) => Ok(Target {
+            Some(MoocsPath::Lesson {
+                year,
+                course_id,
+                lesson_id,
+            }) => Ok(Target {
                 year,
                 course_id,
                 lesson_id,
                 page_id: None,
             }),
-            Some(MoocsPath::Page { year, course_id, lesson_id, page_id }) => Ok(Target {
+            Some(MoocsPath::Page {
+                year,
+                course_id,
+                lesson_id,
+                page_id,
+            }) => Ok(Target {
                 year,
                 course_id,
                 lesson_id,
@@ -157,12 +170,7 @@ async fn resolve_target(
     })
 }
 
-async fn apply_fetch_slides(
-    session: &Session,
-    paths: &Paths,
-    embeds: &mut [Embed],
-    no_cache: bool,
-) {
+async fn apply_fetch_slides(session: &Session, paths: &Paths, embeds: &mut [Embed], no_cache: bool) {
     for embed in embeds.iter_mut() {
         if let Embed::GoogleSlides {
             embed_url,
@@ -195,4 +203,3 @@ fn emit_err(err: ImoocsError) -> ExitCode {
     output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
     ExitCode::from(code)
 }
-
