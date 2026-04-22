@@ -42,9 +42,7 @@ fn extract_course(element: &ElementRef<'_>) -> Result<Option<Course>> {
             name,
             url: absolute,
         })),
-        _ => Err(ImoocsError::Parse(format!(
-            "unexpected course card href: {href}"
-        ))),
+        _ => Err(ImoocsError::Parse(format!("unexpected course card href: {href}"))),
     }
 }
 

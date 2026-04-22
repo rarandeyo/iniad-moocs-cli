@@ -74,9 +74,7 @@ impl ImoocsError {
             Self::NotFound { .. } => ExitCode::NotFound,
             Self::Api(_) => ExitCode::Api,
             Self::Network(_) | Self::Reqwest(_) => ExitCode::Network,
-            Self::Parse(_) | Self::Internal(_) | Self::Io(_) | Self::Json(_) | Self::Anyhow(_) => {
-                ExitCode::Internal
-            }
+            Self::Parse(_) | Self::Internal(_) | Self::Io(_) | Self::Json(_) | Self::Anyhow(_) => ExitCode::Internal,
         }
     }
 

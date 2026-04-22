@@ -25,12 +25,10 @@ const SLIDES_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Regex from moocs-collect: matches the escape-encoded <svg>...</svg>
 /// sequences that Google Slides embeds inside its JS init payload.
-static SVG_ESCAPED_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\\x3csvg[\s\S]*?\\x3c\\/svg\\x3e").unwrap());
+static SVG_ESCAPED_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\\x3csvg[\s\S]*?\\x3c\\/svg\\x3e").unwrap());
 
 /// Regex to find `xlink:href="https://..."` image refs inside an SVG.
-static XLINK_HTTPS_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"xlink:href="(https://[^"]+)""#).unwrap());
+static XLINK_HTTPS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"xlink:href="(https://[^"]+)""#).unwrap());
 
 #[derive(Debug)]
 pub struct SlideFetchResult {
@@ -143,9 +141,7 @@ fn reuse_cache_if_fresh(path: &PathBuf) -> Result<Option<SlideFetchResult>> {
     }
     let meta = fs::metadata(path)?;
     let modified = meta.modified()?;
-    let age = SystemTime::now()
-        .duration_since(modified)
-        .unwrap_or(Duration::ZERO);
+    let age = SystemTime::now().duration_since(modified).unwrap_or(Duration::ZERO);
     if age > SLIDES_CACHE_TTL {
         return Ok(None);
     }
@@ -199,26 +195,25 @@ async fn inline_image_refs(session: &Session, svgs: &[String]) -> Result<Vec<Str
 
     // Fetch in parallel.
     type FetchOutcome = std::result::Result<(Vec<u8>, Option<String>), String>;
-    let results: Vec<(String, FetchOutcome)> =
-        stream::iter(urls.into_iter())
-            .map(|url| async move {
-                let out = async {
-                    let resp = session.client.get(&url).send().await?.error_for_status()?;
-                    let content_type = resp
-                        .headers()
-                        .get(reqwest::header::CONTENT_TYPE)
-                        .and_then(|v| v.to_str().ok())
-                        .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
-                    let bytes = resp.bytes().await?.to_vec();
-                    Ok::<_, reqwest::Error>((bytes, content_type))
-                }
-                .await
-                .map_err(|e| format!("{e}"));
-                (url, out)
-            })
-            .buffer_unordered(6)
-            .collect()
-            .await;
+    let results: Vec<(String, FetchOutcome)> = stream::iter(urls.into_iter())
+        .map(|url| async move {
+            let out = async {
+                let resp = session.client.get(&url).send().await?.error_for_status()?;
+                let content_type = resp
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
+                let bytes = resp.bytes().await?.to_vec();
+                Ok::<_, reqwest::Error>((bytes, content_type))
+            }
+            .await
+            .map_err(|e| format!("{e}"));
+            (url, out)
+        })
+        .buffer_unordered(6)
+        .collect()
+        .await;
 
     let mut cache: HashMap<String, String> = HashMap::new();
     for (url, res) in results {
@@ -296,9 +291,8 @@ fn svgs_to_pdf(svgs: &[String]) -> Result<Vec<u8>> {
 
     let mut per_slide_pdfs: Vec<Vec<u8>> = Vec::with_capacity(svgs.len());
     for (i, svg) in svgs.iter().enumerate() {
-        let tree = usvg::Tree::from_str(svg, &opts).map_err(|e| {
-            ImoocsError::Parse(format!("usvg parse failed on slide {i}: {e}"))
-        })?;
+        let tree = usvg::Tree::from_str(svg, &opts)
+            .map_err(|e| ImoocsError::Parse(format!("usvg parse failed on slide {i}: {e}")))?;
         let bytes = svg2pdf::to_pdf(&tree, ConversionOptions::default(), PageOptions::default())
             .map_err(|e| ImoocsError::Internal(format!("svg2pdf conversion failed on slide {i}: {e}")))?;
         per_slide_pdfs.push(bytes);
@@ -324,8 +318,8 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
     let mut documents_objects: BTreeMap<ObjectId, Object> = BTreeMap::new();
 
     for (i, bytes) in inputs.iter().enumerate() {
-        let mut doc = Document::load_mem(bytes)
-            .map_err(|e| ImoocsError::Internal(format!("lopdf load slide {i}: {e}")))?;
+        let mut doc =
+            Document::load_mem(bytes).map_err(|e| ImoocsError::Internal(format!("lopdf load slide {i}: {e}")))?;
         doc.renumber_objects_with(max_id);
         max_id = doc.max_id + 1;
         documents_pages.extend(doc.get_pages().into_values().map(|object_id| {
@@ -342,10 +336,7 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
     let mut pages_object: Option<(ObjectId, Object)> = None;
     for (object_id, object) in documents_objects.iter() {
         match object.type_name().unwrap_or(b"") {
-            b"Catalog" => catalog_object = Some((
-                catalog_object.map_or(*object_id, |(id, _)| id),
-                object.clone(),
-            )),
+            b"Catalog" => catalog_object = Some((catalog_object.map_or(*object_id, |(id, _)| id), object.clone())),
             b"Pages" => {
                 if let Ok(dict) = object.as_dict() {
                     let mut dict = dict.clone();
@@ -354,10 +345,7 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
                         // Merge Kids and Count
                         dict.extend(&prev);
                     }
-                    pages_object = Some((
-                        pages_object.map_or(*object_id, |(id, _)| id),
-                        Object::Dictionary(dict),
-                    ));
+                    pages_object = Some((pages_object.map_or(*object_id, |(id, _)| id), Object::Dictionary(dict)));
                 }
             }
             _ => {}
@@ -390,9 +378,7 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
     pages_dict.set("Count", page_count);
     pages_dict.set("Type", "Pages");
 
-    document
-        .objects
-        .insert(pages_object_id, Object::Dictionary(pages_dict));
+    document.objects.insert(pages_object_id, Object::Dictionary(pages_dict));
 
     // Catalog
     let catalog_object_id = match catalog_object {

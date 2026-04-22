@@ -15,17 +15,22 @@ use crate::session::{moocs_url, MOOCS_BASE};
 
 static RE_YEAR_ONLY: Lazy<Regex> = Lazy::new(|| Regex::new(r"^/courses/(\d{4})/?$").unwrap());
 static RE_COURSE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^/courses/(\d{4})/([^/]+)/?$").unwrap());
-static RE_LESSON: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^/courses/(\d{4})/([^/]+)/([^/]+)/?$").unwrap());
-static RE_PAGE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^/courses/(\d{4})/([^/]+)/([^/]+)/([^/]+)/?$").unwrap());
+static RE_LESSON: Lazy<Regex> = Lazy::new(|| Regex::new(r"^/courses/(\d{4})/([^/]+)/([^/]+)/?$").unwrap());
+static RE_PAGE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^/courses/(\d{4})/([^/]+)/([^/]+)/([^/]+)/?$").unwrap());
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MoocsPath {
     CoursesIndex,
     Year(Year),
-    Course { year: Year, course_id: String },
-    Lesson { year: Year, course_id: String, lesson_id: String },
+    Course {
+        year: Year,
+        course_id: String,
+    },
+    Lesson {
+        year: Year,
+        course_id: String,
+        lesson_id: String,
+    },
     Page {
         year: Year,
         course_id: String,

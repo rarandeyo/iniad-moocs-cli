@@ -97,11 +97,7 @@ fn absolutize(href: &str) -> String {
 /// LectureGroup の配列を返す。順序はサイドバーの出現順を維持。
 /// `treeview` が見つからない / 空の場合は、フラットな `scrape_course_lessons`
 /// 結果を 1 つのダミーグループ ("") に詰めて返す。
-pub fn scrape_course_lecture_groups(
-    html: &str,
-    year: Year,
-    course_id: &str,
-) -> Result<Vec<LectureGroup>> {
+pub fn scrape_course_lecture_groups(html: &str, year: Year, course_id: &str) -> Result<Vec<LectureGroup>> {
     let document = Html::parse_document(html);
     let treeview_sel = parse_selector("aside ul.sidebar-menu li.treeview")?;
     let submenu_sel = parse_selector(":scope > ul.treeview-menu li a[href]")?;

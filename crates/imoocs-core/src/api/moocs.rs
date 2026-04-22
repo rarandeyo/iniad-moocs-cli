@@ -7,9 +7,8 @@ use crate::api::assignments::{get_answers, get_assignment_detail, get_problem_ht
 use crate::auth::is_logged_in_moocs;
 use crate::error::{ImoocsError, Result};
 use crate::schemas::{
-    AssignmentDetail, AssignmentKey, AssignmentStatus, AssignmentSummary, Course, CourseDetail,
-    DerivedStatus, Embed, Lang, Lesson, LessonContent, LessonWithAssignments, Page, ProblemField,
-    Year,
+    AssignmentDetail, AssignmentKey, AssignmentStatus, AssignmentSummary, Course, CourseDetail, DerivedStatus, Embed,
+    Lang, Lesson, LessonContent, LessonWithAssignments, Page, ProblemField, Year,
 };
 use crate::scrape::problem_form::parse_problem_form;
 use crate::scrape::{
@@ -40,9 +39,7 @@ pub async fn resolve_latest_year(session: &Session) -> Result<Year> {
         });
     }
     if !status.is_success() {
-        return Err(ImoocsError::Api(format!(
-            "GET /courses returned status {status}"
-        )));
+        return Err(ImoocsError::Api(format!("GET /courses returned status {status}")));
     }
 
     // Case A: MOOCs did redirect to /courses/<year> (e.g. archive year).
@@ -91,19 +88,29 @@ pub async fn get_course_list(session: &Session, year: Option<Year>) -> Result<Ve
     ensure_authenticated(session).await?;
     let url = url::build_courses_year(year);
     debug!(%url, "fetching course list");
-    let html = session.client.get(&url).send().await?.error_for_status()?.text().await?;
+    let html = session
+        .client
+        .get(&url)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
     scrape_course_list(&html)
 }
 
-pub async fn get_course_detail(
-    session: &Session,
-    year: Year,
-    course_id: &str,
-) -> Result<CourseDetail> {
+pub async fn get_course_detail(session: &Session, year: Year, course_id: &str) -> Result<CourseDetail> {
     ensure_authenticated(session).await?;
     let url = url::build_course(year, course_id);
     debug!(%url, "fetching course detail");
-    let html = session.client.get(&url).send().await?.error_for_status()?.text().await?;
+    let html = session
+        .client
+        .get(&url)
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?;
     let lessons = scrape_course_lessons(&html, year, course_id)?;
     let groups = scrape_course_lecture_groups(&html, year, course_id)?;
 
@@ -114,7 +121,11 @@ pub async fn get_course_detail(
         name: extract_course_name(&html).unwrap_or_else(|| course_id.to_string()),
         url,
     };
-    Ok(CourseDetail { course, lessons, groups })
+    Ok(CourseDetail {
+        course,
+        lessons,
+        groups,
+    })
 }
 
 fn extract_course_name(html: &str) -> Option<String> {
@@ -122,7 +133,11 @@ fn extract_course_name(html: &str) -> Option<String> {
     let sel = crate::util::html::parse_selector(".content-header h1").ok()?;
     let el = doc.select(&sel).next()?;
     let s = el.text().collect::<String>().trim().to_string();
-    if s.is_empty() { None } else { Some(s) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 pub async fn get_lesson_page(
@@ -146,9 +161,7 @@ pub async fn get_lesson_page(
     // Derive the resolved page_id (MOOCs redirects bare lesson URLs to their first page).
     let resolved_page_id = match url::parse(&final_url) {
         Some(MoocsPath::Page { page_id, .. }) => page_id,
-        Some(MoocsPath::Lesson { .. }) => {
-            page_id.unwrap_or_default().to_string()
-        }
+        Some(MoocsPath::Lesson { .. }) => page_id.unwrap_or_default().to_string(),
         _ => page_id.unwrap_or_default().to_string(),
     };
 
@@ -181,46 +194,41 @@ pub async fn get_lesson_with_assignments(
         .map(|problem_id| {
             let course_id = course_id_owned.clone();
             async move {
-                let key = AssignmentKey { year, course_id, problem_id };
+                let key = AssignmentKey {
+                    year,
+                    course_id,
+                    problem_id,
+                };
                 get_assignment_detail(session, &key, lang).await.ok()
             }
         })
         .buffer_unordered(4)
         .collect()
         .await;
-    Ok(LessonWithAssignments { lesson, assignments: details })
+    Ok(LessonWithAssignments {
+        lesson,
+        assignments: details,
+    })
 }
 
 /// Crawl all pages of every lesson in a course, harvesting `.problem-container`
 /// assignments. Fetches `/status` for each one in parallel to fill in status.
 ///
 /// Concurrency: 4 concurrent page fetches + 4 concurrent status fetches.
-pub async fn list_course_assignments(
-    session: &Session,
-    year: Year,
-    course_id: &str,
-) -> Result<Vec<AssignmentSummary>> {
+pub async fn list_course_assignments(session: &Session, year: Year, course_id: &str) -> Result<Vec<AssignmentSummary>> {
     ensure_authenticated(session).await?;
     let detail = get_course_detail(session, year, course_id).await?;
 
     // Stage 1: for each lesson, fetch its bare URL to learn its pages.
     let lessons = detail.lessons.clone();
     let pages = stream::iter(lessons.into_iter())
-        .map(|lref| {
-            async move {
-                let url = url::build_lesson(lref.year, &lref.course_id, &lref.lesson_id);
-                let resp = session.client.get(&url).send().await?.error_for_status()?;
-                let final_url = resp.url().as_str().to_string();
-                let html = resp.text().await?;
-                let pages = scrape_lesson_pages(
-                    &html,
-                    &final_url,
-                    lref.year,
-                    &lref.course_id,
-                    &lref.lesson_id,
-                )?;
-                Ok::<_, ImoocsError>((lref, pages))
-            }
+        .map(|lref| async move {
+            let url = url::build_lesson(lref.year, &lref.course_id, &lref.lesson_id);
+            let resp = session.client.get(&url).send().await?.error_for_status()?;
+            let final_url = resp.url().as_str().to_string();
+            let html = resp.text().await?;
+            let pages = scrape_lesson_pages(&html, &final_url, lref.year, &lref.course_id, &lref.lesson_id)?;
+            Ok::<_, ImoocsError>((lref, pages))
         })
         .buffer_unordered(4)
         .collect::<Vec<_>>()
@@ -244,7 +252,14 @@ pub async fn list_course_assignments(
         .map(|(lesson_id, page_id, page_url)| {
             let course = course_owned.clone();
             async move {
-                let html = session.client.get(&page_url).send().await?.error_for_status()?.text().await?;
+                let html = session
+                    .client
+                    .get(&page_url)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .text()
+                    .await?;
                 let mut v = scrape_assignments_on_page(&html, year, &course, &page_id)?;
                 for a in v.iter_mut() {
                     a.lesson_id = Some(lesson_id.clone());
@@ -295,12 +310,11 @@ async fn resolve_summary(session: &Session, mut a: AssignmentSummary) -> Assignm
 }
 
 async fn compute_open_derived(session: &Session, key: &AssignmentKey) -> DerivedStatus {
-    let (html, answers) = tokio::join!(
-        get_problem_html(session, key, Lang::Ja),
-        get_answers(session, key),
-    );
+    let (html, answers) = tokio::join!(get_problem_html(session, key, Lang::Ja), get_answers(session, key),);
     let Ok(html) = html else { return DerivedStatus::Error };
-    let Ok(answers) = answers else { return DerivedStatus::Error };
+    let Ok(answers) = answers else {
+        return DerivedStatus::Error;
+    };
     let fields = parse_problem_form(&html);
     if fields.is_empty() {
         return DerivedStatus::Pending;
@@ -313,10 +327,7 @@ async fn compute_open_derived(session: &Session, key: &AssignmentKey) -> Derived
     }
 }
 
-fn is_filled(
-    f: &ProblemField,
-    answers: &std::collections::HashMap<String, crate::schemas::AnswerEntry>,
-) -> bool {
+fn is_filled(f: &ProblemField, answers: &std::collections::HashMap<String, crate::schemas::AnswerEntry>) -> bool {
     let pid = match f {
         ProblemField::Textarea { pid, .. }
         | ProblemField::Text { pid, .. }
@@ -338,12 +349,7 @@ fn is_filled(
 
 /// Optional: fetch full page list for a lesson. Not used in MVP `course show` but
 /// exposed for `lesson show --pages-only` etc. if we want later.
-pub async fn get_lesson_pages(
-    session: &Session,
-    year: Year,
-    course_id: &str,
-    lesson_id: &str,
-) -> Result<Lesson> {
+pub async fn get_lesson_pages(session: &Session, year: Year, course_id: &str, lesson_id: &str) -> Result<Lesson> {
     ensure_authenticated(session).await?;
     let url = url::build_lesson(year, course_id, lesson_id);
     let resp = session.client.get(&url).send().await?.error_for_status()?;

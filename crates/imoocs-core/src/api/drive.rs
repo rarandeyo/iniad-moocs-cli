@@ -39,38 +39,28 @@ use crate::session::Session;
 const DRIVE_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const FOLDER_PAGE_HINT_SIZE: usize = 50;
 const NATIVE_MIME_PREFIX: &str = "application/vnd.google-apps.";
-const DRIVE_FILE_FETCH_URL: &str =
-    "https://drive.usercontent.google.com/download?id={id}&export=download&confirm=t";
+const DRIVE_FILE_FETCH_URL: &str = "https://drive.usercontent.google.com/download?id={id}&export=download&confirm=t";
 
 /// Matches `window['_DRIVE_ivd'] = '<payload>';` (single-quoted, `\x??` hex-escaped).
-static IVD_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"window\[['"]_DRIVE_ivd['"]\]\s*=\s*'((?:[^'\\]|\\.)*)'"#).unwrap()
-});
+static IVD_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"window\[['"]_DRIVE_ivd['"]\]\s*=\s*'((?:[^'\\]|\\.)*)'"#).unwrap());
 
 /// Matches `\xHH` escape sequences used in the IVD payload.
-static HEX_ESCAPE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"\\x([0-9a-fA-F]{2})").unwrap());
+static HEX_ESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\\x([0-9a-fA-F]{2})").unwrap());
 
 /// Matches `filename="..."` in a `Content-Disposition` header.
-static CONTENT_DISPOSITION_FILENAME_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"filename\s*=\s*"([^"]+)""#).unwrap());
+static CONTENT_DISPOSITION_FILENAME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"filename\s*=\s*"([^"]+)""#).unwrap());
 
 /// Matches the virus-scan confirm interstitial (fallback; with `confirm=t` this
 /// should basically never fire — kept as a safety net).
-static CONFIRM_TOKEN_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"name="confirm"\s+value="([^"]+)""#).unwrap());
+static CONFIRM_TOKEN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"name="confirm"\s+value="([^"]+)""#).unwrap());
 
 // ---------- Shared helpers ----------
 
 /// Reject IDs that could escape the cache directory or contain URL/shell
 /// metacharacters. Drive IDs are base64url-like (alphanumeric + `_-`).
 fn validate_drive_id(id: &str) -> Result<()> {
-    if id.is_empty()
-        || id.len() > 128
-        || !id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
+    if id.is_empty() || id.len() > 128 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         return Err(ImoocsError::Validation(format!(
             "invalid Drive ID {id:?}: must be 1..=128 chars of [A-Za-z0-9_-]"
         )));
@@ -83,19 +73,13 @@ fn validate_drive_id(id: &str) -> Result<()> {
 fn classify_drive_status(status: StatusCode, what: &str) -> Result<()> {
     match status.as_u16() {
         200 => Ok(()),
-        404 => Err(ImoocsError::NotFound {
-            what: what.to_string(),
-        }),
+        404 => Err(ImoocsError::NotFound { what: what.to_string() }),
         403 => Err(ImoocsError::Auth {
             reason: format!("access denied to {what}"),
-            hint: Some(
-                "make sure the INIAD account you logged in with has access to this resource".into(),
-            ),
+            hint: Some("make sure the INIAD account you logged in with has access to this resource".into()),
         }),
         s if (500..600).contains(&s) => Err(ImoocsError::Api(format!("{what} returned {s}"))),
-        other => Err(ImoocsError::Api(format!(
-            "unexpected status {other} from {what}"
-        ))),
+        other => Err(ImoocsError::Api(format!("unexpected status {other} from {what}"))),
     }
 }
 
@@ -120,10 +104,7 @@ fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {
 // ---------- Folder listing ----------
 
 /// List items in a Drive folder by scraping the rendered-HTML `_DRIVE_ivd` blob.
-pub async fn list_drive_folder(
-    session: &Session,
-    folder_id: &str,
-) -> Result<DriveFolderListing> {
+pub async fn list_drive_folder(session: &Session, folder_id: &str) -> Result<DriveFolderListing> {
     validate_drive_id(folder_id)?;
     if !is_logged_in_google(session).await? {
         return Err(ImoocsError::Auth {
@@ -149,8 +130,7 @@ pub async fn list_drive_folder(
     // treat it as an auth failure instead of a parse error.
     if looks_like_google_login(&body) {
         return Err(ImoocsError::Auth {
-            reason: "Drive folder returned Google sign-in HTML; SAML session may have expired"
-                .into(),
+            reason: "Drive folder returned Google sign-in HTML; SAML session may have expired".into(),
             hint: Some("run `imoocs auth login-google`".into()),
         });
     }
@@ -166,8 +146,7 @@ pub async fn list_drive_folder(
 
 fn looks_like_google_login(body: &str) -> bool {
     let head = &body[..body.len().min(4096)].to_ascii_lowercase();
-    head.contains("accounts.google.com/servicelogin")
-        || head.contains("accounts.google.com/v3/signin")
+    head.contains("accounts.google.com/servicelogin") || head.contains("accounts.google.com/v3/signin")
 }
 
 /// Extract items from the `window['_DRIVE_ivd']` payload embedded in a Drive
@@ -181,12 +160,12 @@ pub fn parse_ivd(html: &str) -> Result<Vec<DriveItem>> {
         .ok_or_else(|| ImoocsError::Parse("no window['_DRIVE_ivd'] payload in folder HTML".into()))?;
     let escaped = &caps[1];
     let decoded = unescape_ivd(escaped);
-    let value: Value = serde_json::from_str(&decoded)
-        .map_err(|e| ImoocsError::Parse(format!("_DRIVE_ivd JSON parse failed: {e}")))?;
+    let value: Value =
+        serde_json::from_str(&decoded).map_err(|e| ImoocsError::Parse(format!("_DRIVE_ivd JSON parse failed: {e}")))?;
 
-    let outer = value.as_array().ok_or_else(|| {
-        ImoocsError::Parse("_DRIVE_ivd: expected top-level array".into())
-    })?;
+    let outer = value
+        .as_array()
+        .ok_or_else(|| ImoocsError::Parse("_DRIVE_ivd: expected top-level array".into()))?;
     let items_arr = outer
         .first()
         .and_then(Value::as_array)
@@ -196,10 +175,7 @@ pub fn parse_ivd(html: &str) -> Result<Vec<DriveItem>> {
     for (idx, raw) in items_arr.iter().enumerate() {
         match parse_item(raw) {
             Some(it) => items.push(it),
-            None => warn!(
-                idx,
-                "skipping _DRIVE_ivd item with unexpected positional shape"
-            ),
+            None => warn!(idx, "skipping _DRIVE_ivd item with unexpected positional shape"),
         }
     }
     // If the payload had items but none parsed, the positional shape has
@@ -312,15 +288,7 @@ pub async fn fetch_drive_file(
 
     // Detect non-binary responses: empty body, login HTML, virus-scan
     // interstitial, or any other HTML we should refuse to cache as a file.
-    if let Some(retry) = detect_html_response(
-        session,
-        paths,
-        file_id,
-        content_type.as_deref(),
-        &bytes,
-    )
-    .await?
-    {
+    if let Some(retry) = detect_html_response(session, paths, file_id, content_type.as_deref(), &bytes).await? {
         return Ok(retry);
     }
 
@@ -361,12 +329,9 @@ async fn detect_html_response(
     // Larger HTML — look for a Google login page (rare because we check
     // final_url earlier, but kept as a defence in depth).
     let head_lower = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_ascii_lowercase();
-    if head_lower.contains("accounts.google.com/servicelogin")
-        || head_lower.contains("accounts.google.com/v3/signin")
-    {
+    if head_lower.contains("accounts.google.com/servicelogin") || head_lower.contains("accounts.google.com/v3/signin") {
         return Err(ImoocsError::Auth {
-            reason: "Drive download returned Google sign-in HTML; SAML session may have expired"
-                .into(),
+            reason: "Drive download returned Google sign-in HTML; SAML session may have expired".into(),
             hint: Some("run `imoocs auth login-google`".into()),
         });
     }
@@ -399,9 +364,7 @@ async fn fetch_with_confirm(
     file_id: &str,
     token: &str,
 ) -> Result<DriveFileFetchResult> {
-    let url = format!(
-        "https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm={token}"
-    );
+    let url = format!("https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm={token}");
     let resp = session.client.get(&url).send().await?;
     let final_url = resp.url().clone();
     if final_url.host_str() == Some("accounts.google.com") {
@@ -410,10 +373,7 @@ async fn fetch_with_confirm(
             hint: Some("run `imoocs auth login-google`".into()),
         });
     }
-    classify_drive_status(
-        resp.status(),
-        &format!("drive file {file_id} (confirm retry)"),
-    )?;
+    classify_drive_status(resp.status(), &format!("drive file {file_id} (confirm retry)"))?;
 
     let content_disposition = resp
         .headers()
@@ -586,9 +546,7 @@ fn _ensure_path_type(_p: &Path) {}
 mod tests {
     use super::*;
 
-    const FIXTURE: &str = include_str!(
-        "../../tests/fixtures/drive_folder_sample.html"
-    );
+    const FIXTURE: &str = include_str!("../../tests/fixtures/drive_folder_sample.html");
 
     #[test]
     fn parse_ivd_extracts_fixture_items() {
@@ -619,8 +577,16 @@ mod tests {
     #[test]
     fn folder_mime_maps_to_folder_kind() {
         let raw = serde_json::json!([
-            "FOLDER_ID", ["PARENT"], "subdir", "application/vnd.google-apps.folder",
-            0, null, 0, 0, 0, 1_700_000_000_000_i64
+            "FOLDER_ID",
+            ["PARENT"],
+            "subdir",
+            "application/vnd.google-apps.folder",
+            0,
+            null,
+            0,
+            0,
+            0,
+            1_700_000_000_000_i64
         ]);
         let item = parse_item(&raw).expect("parse_item");
         assert_eq!(item.kind, DriveKind::Folder);
@@ -640,10 +606,7 @@ mod tests {
     #[test]
     fn extension_from_prefers_filename_suffix() {
         assert_eq!(extension_from("ai-01.zip", None).as_deref(), Some("zip"));
-        assert_eq!(
-            extension_from("weird", Some("application/pdf")).as_deref(),
-            Some("pdf")
-        );
+        assert_eq!(extension_from("weird", Some("application/pdf")).as_deref(), Some("pdf"));
         assert_eq!(extension_from("noext", None), None);
     }
 
@@ -686,9 +649,7 @@ mod tests {
         // items array is non-empty but each item is a string (not the expected
         // positional array). parse_item returns None for all items.
         let synthetic_payload = r"\x5b\x5b\x22not-an-item\x22\x5d\x5d";
-        let html = format!(
-            "<html><body><script>window['_DRIVE_ivd'] = '{synthetic_payload}';</script></body></html>"
-        );
+        let html = format!("<html><body><script>window['_DRIVE_ivd'] = '{synthetic_payload}';</script></body></html>");
         let err = parse_ivd(&html).unwrap_err();
         match err {
             ImoocsError::Parse(msg) => {
@@ -701,19 +662,14 @@ mod tests {
     #[test]
     fn parse_ivd_empty_items_is_still_ok() {
         let empty_payload = r"\x5b\x5b\x5d\x5d";
-        let html = format!(
-            "<html><body><script>window['_DRIVE_ivd'] = '{empty_payload}';</script></body></html>"
-        );
+        let html = format!("<html><body><script>window['_DRIVE_ivd'] = '{empty_payload}';</script></body></html>");
         let items = parse_ivd(&html).expect("empty folder should parse");
         assert_eq!(items.len(), 0);
     }
 
     #[test]
     fn atomic_write_replaces_existing_file() {
-        let dir = std::env::temp_dir().join(format!(
-            "imoocs-atomic-write-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("imoocs-atomic-write-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let target = dir.join("file.bin");
         atomic_write(&target, b"first").unwrap();
@@ -725,11 +681,7 @@ mod tests {
             .unwrap()
             .filter_map(|e| e.ok().map(|e| e.file_name()))
             .collect();
-        assert_eq!(
-            remaining.len(),
-            1,
-            "expected only target file, got {remaining:?}"
-        );
+        assert_eq!(remaining.len(), 1, "expected only target file, got {remaining:?}");
         let _ = fs::remove_dir_all(&dir);
     }
 }

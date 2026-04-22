@@ -39,11 +39,12 @@ pub async fn login_moocs(session: &Session, creds: &Credentials) -> Result<()> {
 
     let body = resp.text().await?;
     let document = Html::parse_document(&body);
-    let action = extract_element_attribute(&document.root_element(), "form.form-signin", "action")
-        .map_err(|e| ImoocsError::Auth {
+    let action = extract_element_attribute(&document.root_element(), "form.form-signin", "action").map_err(|e| {
+        ImoocsError::Auth {
             reason: format!("cannot find Keycloak login form: {e}"),
             hint: Some("the INIAD SSO login page may have changed; file an issue".into()),
-        })?;
+        }
+    })?;
 
     debug!(%action, "found Keycloak form.form-signin action");
     let post = session

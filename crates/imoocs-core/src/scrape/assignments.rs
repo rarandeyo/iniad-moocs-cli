@@ -23,7 +23,9 @@ pub fn scrape_assignments_on_page(
     let sel = parse_selector(".problem-container")?;
     let mut out = Vec::new();
     for el in doc.select(&sel) {
-        let Some(problem_id) = el.value().attr("data-problem") else { continue };
+        let Some(problem_id) = el.value().attr("data-problem") else {
+            continue;
+        };
         out.push(AssignmentSummary {
             year,
             course_id: course_id.to_string(),

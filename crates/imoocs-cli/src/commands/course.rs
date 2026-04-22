@@ -2,12 +2,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::Subcommand;
-use imoocs_core::{
-    api,
-    envelope::ErrorDetail,
-    paths::Paths,
-    session::Session,
-};
+use imoocs_core::{api, envelope::ErrorDetail, paths::Paths, session::Session};
 
 use crate::cli::GlobalArgs;
 use crate::output;
@@ -50,17 +45,15 @@ pub async fn run(global: &GlobalArgs, cmd: CourseCommand) -> Result<ExitCode> {
                 Ok(ExitCode::from(err.exit_code().as_u8()))
             }
         },
-        CourseCommand::Show { course_id } => {
-            match api::get_course_detail(&session, year, &course_id).await {
-                Ok(detail) => {
-                    output::emit_success(detail, global.format);
-                    Ok(ExitCode::from(0))
-                }
-                Err(err) => {
-                    output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
-                    Ok(ExitCode::from(err.exit_code().as_u8()))
-                }
+        CourseCommand::Show { course_id } => match api::get_course_detail(&session, year, &course_id).await {
+            Ok(detail) => {
+                output::emit_success(detail, global.format);
+                Ok(ExitCode::from(0))
             }
-        }
+            Err(err) => {
+                output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
+                Ok(ExitCode::from(err.exit_code().as_u8()))
+            }
+        },
     }
 }

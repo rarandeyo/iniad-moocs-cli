@@ -17,8 +17,7 @@ use tokio::sync::RwLock;
 use crate::error::{ImoocsError, Result};
 use crate::paths::Paths;
 
-pub const USER_AGENT: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
+pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) \
      Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0";
 
 pub const MOOCS_BASE: &str = "https://moocs.iniad.org";
@@ -82,8 +81,8 @@ fn load_cookie_jar(path: &Path) -> Result<Arc<CookieStoreMutex>> {
     }
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let store = cookie_store::serde::json::load(reader)
-        .map_err(|e| ImoocsError::Parse(format!("cookie jar load: {e}")))?;
+    let store =
+        cookie_store::serde::json::load(reader).map_err(|e| ImoocsError::Parse(format!("cookie jar load: {e}")))?;
     Ok(Arc::new(CookieStoreMutex::new(store)))
 }
 

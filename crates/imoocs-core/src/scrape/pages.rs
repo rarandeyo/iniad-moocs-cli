@@ -55,7 +55,13 @@ pub fn scrape_lesson_pages(
     let current_page_id = current_page_id(current_url, year, course_id, lesson_id);
     let mut out = Vec::new();
     for li in &items[1..items.len() - 1] {
-        out.push(extract_page(li, year, course_id, lesson_id, current_page_id.as_deref())?);
+        out.push(extract_page(
+            li,
+            year,
+            course_id,
+            lesson_id,
+            current_page_id.as_deref(),
+        )?);
     }
     Ok(out)
 }

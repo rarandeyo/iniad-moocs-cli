@@ -53,8 +53,7 @@ pub async fn run(global: &GlobalArgs, cmd: DriveCommand) -> Result<ExitCode> {
                 DriveTarget::Folder(id) | DriveTarget::Ambiguous(id) => id,
                 DriveTarget::File(_) => {
                     return Ok(emit_err(ImoocsError::Validation(
-                        "target looks like a Drive FILE URL; use `imoocs drive fetch` instead"
-                            .into(),
+                        "target looks like a Drive FILE URL; use `imoocs drive fetch` instead".into(),
                     )));
                 }
                 DriveTarget::Unrecognized => {
@@ -71,17 +70,12 @@ pub async fn run(global: &GlobalArgs, cmd: DriveCommand) -> Result<ExitCode> {
                 Err(e) => Ok(emit_err(e)),
             }
         }
-        DriveCommand::Fetch {
-            target,
-            out,
-            no_cache,
-        } => {
+        DriveCommand::Fetch { target, out, no_cache } => {
             let file_id = match parse_drive_target(&target) {
                 DriveTarget::File(id) | DriveTarget::Ambiguous(id) => id,
                 DriveTarget::Folder(_) => {
                     return Ok(emit_err(ImoocsError::Validation(
-                        "target looks like a Drive FOLDER URL; use `imoocs drive list` instead"
-                            .into(),
+                        "target looks like a Drive FOLDER URL; use `imoocs drive list` instead".into(),
                     )));
                 }
                 DriveTarget::Unrecognized => {
@@ -120,23 +114,16 @@ enum DriveTarget {
 
 // All patterns exclude `#` from the id capture so fragment anchors
 // (e.g. `/file/d/<id>#foo`) don't contaminate the fileId.
-static FILE_URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^https://drive\.google\.com/file/d/([^/?#]+)").unwrap()
-});
-static FOLDER_URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^https://drive\.google\.com/drive/folders/([^/?#]+)").unwrap()
-});
+static FILE_URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https://drive\.google\.com/file/d/([^/?#]+)").unwrap());
+static FOLDER_URL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^https://drive\.google\.com/drive/folders/([^/?#]+)").unwrap());
 // `(?:[^#]*&)?id=` makes the prefix optional so both `uc?id=X` (id-first) and
 // `uc?export=download&id=X` (id-last) are accepted.
-static UC_URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^https://drive\.google\.com/uc\?(?:[^#]*&)?id=([^&#]+)").unwrap()
-});
-static USERCONTENT_URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^https://drive\.usercontent\.google\.com/download\?(?:[^#]*&)?id=([^&#]+)")
-        .unwrap()
-});
-static BARE_ID_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^[A-Za-z0-9_-]{25,64}$").unwrap());
+static UC_URL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^https://drive\.google\.com/uc\?(?:[^#]*&)?id=([^&#]+)").unwrap());
+static USERCONTENT_URL_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^https://drive\.usercontent\.google\.com/download\?(?:[^#]*&)?id=([^&#]+)").unwrap());
+static BARE_ID_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z0-9_-]{25,64}$").unwrap());
 
 fn parse_drive_target(target: &str) -> DriveTarget {
     let t = target.trim();

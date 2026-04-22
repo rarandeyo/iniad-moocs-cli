@@ -17,26 +17,17 @@ use crate::util::html::extract_element_attribute;
 const SAML_REDIRECT_URL: &str = "https://accounts.google.com/samlredirect?domain=iniad.org";
 const INVALID_CREDS_MARKER: &str = "Invalid username or password.";
 
-static ANCHOR_HREF_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"<a\s+(?:[^>]*?\s+)?href="([^"]*)""#).unwrap());
-static META_REFRESH_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"<meta\s+http-equiv="refresh"\s+content=".*?\s+url=(.*?)">"#).unwrap()
-});
+static ANCHOR_HREF_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<a\s+(?:[^>]*?\s+)?href="([^"]*)""#).unwrap());
+static META_REFRESH_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"<meta\s+http-equiv="refresh"\s+content=".*?\s+url=(.*?)">"#).unwrap());
 
 pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> {
     // Step 1: bootstrap
-    let body = session
-        .client
-        .get(SAML_REDIRECT_URL)
-        .send()
-        .await?
-        .text()
-        .await?;
+    let body = session.client.get(SAML_REDIRECT_URL).send().await?.text().await?;
 
     // Step 2: Keycloak username/password (if shown)
     let mut document = Html::parse_document(&body);
-    let initial_action =
-        extract_element_attribute(&document.root_element(), "form.form-signin", "action");
+    let initial_action = extract_element_attribute(&document.root_element(), "form.form-signin", "action");
     if let Ok(action) = initial_action {
         debug!("submitting Keycloak credentials for Google SAML");
         let post = session
@@ -57,15 +48,12 @@ pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> 
         }
         document = Html::parse_document(&post_body);
         // Must now have the saml-post-binding form to continue.
-        extract_element_attribute(
-            &document.root_element(),
-            "form[name='saml-post-binding']",
-            "action",
-        )
-        .map_err(|e| ImoocsError::Auth {
-            reason: format!("unexpected SAML response after Keycloak login: {e}"),
-            hint: Some("INIAD SSO or Google SAML flow may have changed; file an issue".into()),
-        })?;
+        extract_element_attribute(&document.root_element(), "form[name='saml-post-binding']", "action").map_err(
+            |e| ImoocsError::Auth {
+                reason: format!("unexpected SAML response after Keycloak login: {e}"),
+                hint: Some("INIAD SSO or Google SAML flow may have changed; file an issue".into()),
+            },
+        )?;
     }
 
     // Step 3: saml-post-binding → POST to continue SAML assertion
@@ -147,10 +135,6 @@ pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> 
 }
 
 pub async fn is_logged_in_google(session: &Session) -> Result<bool> {
-    let resp = session
-        .client
-        .get("https://myaccount.google.com")
-        .send()
-        .await?;
+    let resp = session.client.get("https://myaccount.google.com").send().await?;
     Ok(resp.url().domain() == Some("myaccount.google.com"))
 }

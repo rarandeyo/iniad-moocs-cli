@@ -28,7 +28,9 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
     let mut last_label: Option<String> = None;
 
     for descendant in root.descendants() {
-        let Some(el) = ElementRef::wrap(descendant) else { continue };
+        let Some(el) = ElementRef::wrap(descendant) else {
+            continue;
+        };
         let name = el.value().name();
 
         match name {
@@ -215,12 +217,9 @@ pub fn apply_answers(
             | ProblemField::Checkbox { current_value, .. } => {
                 *current_value = match &entry.data {
                     Some(Value::String(s)) => Some(s.clone()),
-                    Some(Value::Array(arr)) => Some(
-                        arr.iter()
-                            .filter_map(|v| v.as_str())
-                            .collect::<Vec<_>>()
-                            .join(","),
-                    ),
+                    Some(Value::Array(arr)) => {
+                        Some(arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(","))
+                    }
                     Some(other) => Some(other.to_string()),
                     None => None,
                 };

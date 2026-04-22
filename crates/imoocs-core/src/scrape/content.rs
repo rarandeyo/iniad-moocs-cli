@@ -9,19 +9,15 @@ use crate::schemas::{DriveKind, Embed};
 use crate::util::html::parse_selector;
 
 static SLIDES_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^https://docs\.google\.com/(a/[^/]+/)?presentation/d/(e/)?[^/?]+/(embed|pubembed)",
-    )
-    .unwrap()
+    Regex::new(r"^https://docs\.google\.com/(a/[^/]+/)?presentation/d/(e/)?[^/?]+/(embed|pubembed)").unwrap()
 });
 // `[^/?#]+` excludes `#` so that anchored URLs like `/file/d/<id>#foo` don't
 // leak `#foo` into the captured fileId. The `#` character would otherwise end
 // up in cache filenames and in the constructed `download?id=<id>#foo&...` URL,
 // where reqwest's URL parser treats `#` as a fragment separator and silently
 // drops the `&export=download&confirm=t` suffix.
-static DRIVE_FILE_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^https://drive\.google\.com/file/d/([^/?#]+)(?:/preview|/view)?").unwrap()
-});
+static DRIVE_FILE_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^https://drive\.google\.com/file/d/([^/?#]+)(?:/preview|/view)?").unwrap());
 static DRIVE_FOLDER_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^https://drive\.google\.com/drive/folders/([^/?#]+)").unwrap());
 
@@ -275,7 +271,8 @@ mod tests {
 
     #[test]
     fn drive_file_fragment_does_not_leak_into_id() {
-        let html = r#"<html><body><iframe src="https://drive.google.com/file/d/1ABC/view#junk"></iframe></body></html>"#;
+        let html =
+            r#"<html><body><iframe src="https://drive.google.com/file/d/1ABC/view#junk"></iframe></body></html>"#;
         match &embeds(html)[0] {
             Embed::GoogleDrive { id, .. } => assert_eq!(id, "1ABC"),
             _ => panic!("expected GoogleDrive file"),
