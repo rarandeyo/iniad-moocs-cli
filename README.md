@@ -7,7 +7,7 @@ Unofficial CLI for [INIAD MOOCs](https://moocs.iniad.org/), designed to be drive
 ```sh
 cargo install --git https://github.com/rarandeyo/iniad-moocs-cli imoocs-cli
 imoocs setup                            # MOOCs login → Google SSO → doctor
-gh skill install rarandeyo/iniad-moocs-cli
+gh skill preview rarandeyo/iniad-moocs-cli imoocs
 ```
 
 `imoocs setup` は対話で INIAD username / password を聞き、成功すれば
@@ -69,7 +69,7 @@ Exit code: 0 / 1 API / 2 Auth / 3 Validation / 4 NotFound / 5 Internal / 6 Netwo
 読まれる。
 
 ```sh
-gh skill install rarandeyo/iniad-moocs-cli
+gh skill install rarandeyo/iniad-moocs-cli　imoocs
 ```
 
 ## Docs
@@ -77,7 +77,8 @@ gh skill install rarandeyo/iniad-moocs-cli
 - [docs/DESIGN.md](./docs/DESIGN.md) — 設計思想、モジュール構成、
   実装中に踏んだ落とし穴と修正履歴、v2 延期リスト、MOOCs 側 API 早見表。
 - [skills/imoocs/SKILL.md](./skills/imoocs/SKILL.md) — agent 向け判断フロー。
-- [skills/imoocs/reference/commands.md](./skills/imoocs/reference/commands.md) — コマンドリファレンス。
+- [skills/imoocs/reference/submit-workflow.md](./skills/imoocs/reference/submit-workflow.md) — 課題提出チェックリスト。
+- [skills/imoocs/reference/troubleshooting.md](./skills/imoocs/reference/troubleshooting.md) — exit code / 認証切れ対処。
 - [skills/imoocs/reference/schema.md](./skills/imoocs/reference/schema.md) — envelope + ドメイン型サンプル。
 
 ## License

@@ -13,3 +13,6 @@ Cargo.lock.bak
 
 # 実機 E2E の fixture キャプチャ（個人データ混入回避）
 /fixtures/private/
+
+# skill-creator の eval workspace
+/skills/imoocs-workspace/
