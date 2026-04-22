@@ -3,6 +3,7 @@ pub mod auth;
 pub mod completion;
 pub mod course;
 pub mod doctor;
+pub mod drive;
 pub mod lesson;
 pub mod open;
 pub mod skill;

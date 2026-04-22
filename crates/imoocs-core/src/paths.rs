@@ -50,4 +50,8 @@ impl Paths {
     pub fn slides_dir(&self) -> PathBuf {
         self.cache_dir.join("slides")
     }
+
+    pub fn drive_dir(&self) -> PathBuf {
+        self.cache_dir.join("drive")
+    }
 }

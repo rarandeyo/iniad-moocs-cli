@@ -5,7 +5,7 @@ use regex::Regex;
 use scraper::{ElementRef, Html};
 
 use crate::error::Result;
-use crate::schemas::Embed;
+use crate::schemas::{DriveKind, Embed};
 use crate::util::html::parse_selector;
 
 static SLIDES_RE: Lazy<Regex> = Lazy::new(|| {
@@ -14,8 +14,11 @@ static SLIDES_RE: Lazy<Regex> = Lazy::new(|| {
     )
     .unwrap()
 });
-static DRIVE_FILE_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^https://drive\.google\.com/file/d/[^/]+/preview").unwrap());
+static DRIVE_FILE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^https://drive\.google\.com/file/d/([^/?]+)(?:/preview|/view)?").unwrap()
+});
+static DRIVE_FOLDER_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^https://drive\.google\.com/drive/folders/([^/?]+)").unwrap());
 
 pub struct LessonContentRaw {
     pub title: String,
@@ -87,8 +90,20 @@ pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
                 page_count: None,
                 fetched_at: None,
             });
-        } else if DRIVE_FILE_RE.is_match(&src) {
-            embeds.push(Embed::GoogleDrive { embed_url: src });
+        } else if let Some(caps) = DRIVE_FILE_RE.captures(&src) {
+            let id = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            embeds.push(Embed::GoogleDrive {
+                embed_url: src,
+                kind: DriveKind::File,
+                id,
+            });
+        } else if let Some(caps) = DRIVE_FOLDER_RE.captures(&src) {
+            let id = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
+            embeds.push(Embed::GoogleDrive {
+                embed_url: src,
+                kind: DriveKind::Folder,
+                id,
+            });
         } else {
             embeds.push(Embed::Iframe { src });
         }
@@ -216,4 +231,67 @@ fn derive_export_url(embed_url: &str, format: &str) -> String {
     // Replace trailing /embed or /pubembed with /export/<format>
     let re = Regex::new(r"/(pubembed|embed)(\?.*)?$").unwrap();
     re.replace(embed_url, format!("/export/{format}")).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn embeds(html: &str) -> Vec<Embed> {
+        scrape_lesson_content(html).expect("scrape").embeds
+    }
+
+    #[test]
+    fn classifies_drive_file_view() {
+        let html = r#"<html><body><iframe src="https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_HIST_REDACT001/view?usp=drive_link"></iframe></body></html>"#;
+        let got = embeds(html);
+        assert_eq!(got.len(), 1);
+        match &got[0] {
+            Embed::GoogleDrive { embed_url, kind, id } => {
+                assert!(embed_url.contains("FAKE_DRIVE_FILE_ID_HIST_REDACT001"));
+                assert_eq!(*kind, DriveKind::File);
+                assert_eq!(id, "FAKE_DRIVE_FILE_ID_HIST_REDACT001");
+            }
+            other => panic!("expected GoogleDrive, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classifies_drive_file_preview() {
+        let html = r#"<html><body><iframe src="https://drive.google.com/file/d/1ABC/preview"></iframe></body></html>"#;
+        match &embeds(html)[0] {
+            Embed::GoogleDrive { kind, id, .. } => {
+                assert_eq!(*kind, DriveKind::File);
+                assert_eq!(id, "1ABC");
+            }
+            _ => panic!("expected GoogleDrive file"),
+        }
+    }
+
+    #[test]
+    fn classifies_drive_folder() {
+        let html = r#"<html><body><iframe src="https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_HIST_REDACT1"></iframe></body></html>"#;
+        match &embeds(html)[0] {
+            Embed::GoogleDrive { kind, id, .. } => {
+                assert_eq!(*kind, DriveKind::Folder);
+                assert_eq!(id, "FAKE_DRIVE_FOLDER_ID_HIST_REDACT1");
+            }
+            _ => panic!("expected GoogleDrive folder"),
+        }
+    }
+
+    #[test]
+    fn still_classifies_google_slides() {
+        let html = r#"<html><body><iframe src="https://docs.google.com/presentation/d/e/2PACX-ABC/pubembed"></iframe></body></html>"#;
+        assert!(matches!(embeds(html)[0], Embed::GoogleSlides { .. }));
+    }
+
+    #[test]
+    fn unknown_iframe_falls_through_to_iframe_variant() {
+        let html = r#"<html><body><iframe src="https://example.com/foo"></iframe></body></html>"#;
+        match &embeds(html)[0] {
+            Embed::Iframe { src } => assert_eq!(src, "https://example.com/foo"),
+            _ => panic!("expected Iframe variant"),
+        }
+    }
 }

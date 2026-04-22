@@ -83,6 +83,12 @@ pub enum Command {
         #[command(subcommand)]
         cmd: commands::slide::SlideCommand,
     },
+    /// Google Drive subcommands (list / fetch).
+    #[command(visible_alias = "d")]
+    Drive {
+        #[command(subcommand)]
+        cmd: commands::drive::DriveCommand,
+    },
     /// Open a MOOCs URL and return the appropriate envelope
     /// (course / lesson-with-assignments / …).
     Open(commands::open::OpenArgs),
@@ -107,6 +113,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Lesson { cmd } => commands::lesson::run(&cli.global, cmd).await,
         Command::Assignment { cmd } => commands::assignment::run(&cli.global, cmd).await,
         Command::Slide { cmd } => commands::slide::run(&cli.global, cmd).await,
+        Command::Drive { cmd } => commands::drive::run(&cli.global, cmd).await,
         Command::Open(args) => commands::open::run(&cli.global, args).await,
         Command::Skill { cmd } => commands::skill::run(&cli.global, cmd).await,
         Command::Completion { shell } => commands::completion::run(shell),

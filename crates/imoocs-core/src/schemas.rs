@@ -129,10 +129,64 @@ pub enum Embed {
     #[serde(rename_all = "camelCase")]
     GoogleDrive {
         embed_url: String,
+        /// `/file/d/<id>` なら `File`、`/drive/folders/<id>` なら `Folder`。
+        kind: DriveKind,
+        /// URL から抽出した Drive ID (fileId もしくは folderId)。
+        id: String,
     },
     Iframe {
         src: String,
     },
+}
+
+/// `Embed::GoogleDrive` と `DriveItem` の種別判定。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DriveKind {
+    File,
+    Folder,
+}
+
+/// `drive list` の items 要素。
+///
+/// `mime == "application/vnd.google-apps.folder"` のときは `kind == Folder`。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveItem {
+    pub id: String,
+    pub name: String,
+    pub mime: String,
+    pub kind: DriveKind,
+    /// RFC3339 形式の更新時刻。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<String>,
+}
+
+/// `imoocs drive list` の envelope data。
+///
+/// `truncated == true` は「初期 HTML に 50 件ちょうどで、ページング未対応のため
+/// 後続が切れている可能性」を示す。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveFolderListing {
+    pub folder_id: String,
+    pub items: Vec<DriveItem>,
+    pub truncated: bool,
+    pub fetched_at: String,
+}
+
+/// `imoocs drive fetch` の envelope data。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveFileFetchResult {
+    pub file_id: String,
+    pub filename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+    pub local_path: PathBuf,
+    pub size_bytes: u64,
+    pub fetched_at: String,
+    pub from_cache: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
