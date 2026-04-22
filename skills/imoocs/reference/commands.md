@@ -47,6 +47,44 @@ Google Workspace の SAML ログイン (スライド PDF 取得に必要)。MOOC
 ### `imoocs slide fetch <embedUrl> [--out <path>] [--no-cache]`
 任意の pubembed URL を指定して単独で PDF 生成。24h TTL キャッシュ。
 
+## Drive 配布物
+
+INIAD Google Workspace (`@iniad.org`) アカウントに紐づく SAML cookie
+(`imoocs auth login-google` で取得) を使って、授業で配布される Drive
+フォルダ / ファイルを読み書きする。外部 OAuth 不要。
+
+### `imoocs drive list <folder-url-or-id>`
+`/drive/folders/<id>` の直下 items を列挙。MIME が
+`application/vnd.google-apps.folder` はサブフォルダ。
+
+`data` shape: `{ folderId, items: DriveItem[], truncated: boolean, fetchedAt }`。
+`truncated: true` が返ると 50 件で打ち切られている可能性
+(ページング未対応 — v2 で対応予定)。
+
+受け付ける `target`:
+- `https://drive.google.com/drive/folders/<id>` URL
+- 生の folder ID
+
+### `imoocs drive fetch <file-url-or-id> [--out <path>] [--no-cache]`
+単一ファイルを `$XDG_CACHE_HOME/imoocs/drive/<fileId>.<ext>` に保存。
+Content-Disposition の filename から拡張子を決定、欠損時は mime_guess
+にフォールバック。`--out` で追加コピー、`--no-cache` で 24h TTL を
+無視して再 DL。
+
+`data` shape: `{ fileId, filename, mime, localPath, sizeBytes, fetchedAt, fromCache }`。
+
+受け付ける `target`:
+- `https://drive.google.com/file/d/<id>/(view|preview)?` URL
+- `https://drive.google.com/uc?export=download&id=<id>` (旧ホスト)
+- `https://drive.usercontent.google.com/download?id=<id>...` (新ホスト)
+- 生の file ID
+
+**未対応**: Google ネイティブ型 (Docs/Sheets/Slides の mime
+`application/vnd.google-apps.*`) は `drive.usercontent.google.com` が
+空 HTML を返すため本コマンドでは exit 1 (`API_ERROR`) で弾く。
+pubembed のスライドなら `imoocs slide fetch` が使える。v2 で
+`--export pdf|docx|pptx|xlsx` を追加予定。
+
 ## 課題
 
 ### `imoocs assignment list <courseId> [--lesson <id>] [--status <filter>]`

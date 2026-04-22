@@ -45,7 +45,9 @@
       "embedUrl": "...", "exportPdfUrl": "...", "exportPptxUrl": "...",
       "localPdfPath": "/home/.../slides/<sha1>.pdf", "pageCount": 16,
       "fetchedAt": "2026-04-20T00:00:00Z" },
-    { "type": "google-drive", "embedUrl": "..." },
+    { "type": "google-drive", "kind": "file",
+      "id": "FAKE_DRIVE_FILE_ID_HIST_REDACT001",
+      "embedUrl": "https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_HIST_REDACT001/preview" },
     { "type": "iframe", "src": "..." }
   ],
   "assignments": ["ai-s02-assign2"]
@@ -118,3 +120,46 @@ tag-based enum with `type`:
 
 `assignment list --status pending` / `--status submitted` は `derivedStatus`
 で絞る。`--status open` は Pending と Submitted を両方残す。
+
+## Drive
+
+### DriveItem (`drive list` の items 要素)
+```json
+{
+  "id": "FAKE_DRIVE_FILE_ID_HIST_REDACT001",
+  "name": "ai-01.zip",
+  "mime": "application/x-zip-compressed",
+  "kind": "file",
+  "modifiedAt": "2025-04-05T23:20:49.091Z"
+}
+```
+`mime == "application/vnd.google-apps.folder"` のときだけ `kind == "folder"`。
+`modifiedAt` は Drive UI が持つミリ秒 timestamp を RFC3339 に変換したもの。
+
+### DriveFolderListing (`drive list`)
+```json
+{
+  "folderId": "FAKE_DRIVE_FOLDER_ID_HIST_REDACT1",
+  "items": [ /* DriveItem */ ],
+  "truncated": false,
+  "fetchedAt": "2026-04-22T00:00:00Z"
+}
+```
+`truncated: true` は初期 HTML に 50 件ちょうどで切れた印 — それ以上は
+本 CLI では取れない (v2 でページング予定)。
+
+### DriveFileFetchResult (`drive fetch`)
+```json
+{
+  "fileId": "FAKE_DRIVE_FILE_ID_HIST_REDACT001",
+  "filename": "ai-01.zip",
+  "mime": "application/octet-stream",
+  "localPath": "/home/<user>/.cache/imoocs/drive/FAKE_DRIVE_FILE_ID_HIST_REDACT001.zip",
+  "sizeBytes": 99655,
+  "fetchedAt": "2026-04-22T07:17:02.507682872Z",
+  "fromCache": false
+}
+```
+`localPath` は `$XDG_CACHE_HOME/imoocs/drive/<fileId>.<ext>`。
+拡張子は Content-Disposition の filename から決定。
+`mime` は Drive が返した Content-Type (`application/octet-stream` が多い)。

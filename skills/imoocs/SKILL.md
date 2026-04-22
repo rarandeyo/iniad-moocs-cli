@@ -44,6 +44,16 @@ disable-model-invocation: false
   `imoocs lesson show <c> <l> --page <p> --fetch-slides` で
   `data.embeds[].localPdfPath` に PDF パスが入る。Claude の `Read` tool
   で開ける。ページ数が多いときは `pages: "1-5"` 等でレンジ分割。
+- **ユーザが「Drive」/「配布ファイル」/「zip をダウンロード」等と言った**、
+  または embed に `type: "google-drive"` が含まれる →
+  - `kind: "folder"` なら先に `imoocs drive list <url>` で中身を把握
+    (最大 50 件、`truncated: true` が返ったら 50 件超で切れている可能性
+    あり — 必要ならユーザーにブラウザでの補完を促す)
+  - `kind: "file"` または folder 内で目的ファイルが決まったら
+    `imoocs drive fetch <url-or-fileId>`。`data.localPath` を Read tool
+    で開ける。拡張子は Content-Disposition / mime から自動判定
+  - Google ネイティブ型 (Docs/Sheets/Slides) はエラーで返るので対応
+    不可をユーザーに伝える (v2 で `--export pdf` 予定)
 
 ## コマンドチートシート
 
@@ -55,6 +65,8 @@ disable-model-invocation: false
 | コース詳細 (授業一覧) | `imoocs course show <courseId>` → `data.groups` で章立て |
 | 授業ページ | `imoocs lesson show <c> <l> [--page <p>]` |
 | スライド PDF | `... --fetch-slides [--no-cache]` |
+| Drive フォルダ一覧 | `imoocs drive list <folder-url-or-id>` |
+| Drive ファイル DL | `imoocs drive fetch <file-url-or-id> [--out <path>]` |
 | 課題一覧 | `imoocs assignment list <c> [--lesson <l>] [--status pending\|submitted\|...]` |
 | 課題詳細 | `imoocs assignment show <c> <p>` / `--url <url>` |
 | 回答下書き | `echo '{"pid":"..."}' \| imoocs assignment answer <c> <p> --data -` |
