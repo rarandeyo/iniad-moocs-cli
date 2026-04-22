@@ -130,8 +130,10 @@ pub enum Embed {
     GoogleDrive {
         embed_url: String,
         /// `/file/d/<id>` なら `File`、`/drive/folders/<id>` なら `Folder`。
+        #[serde(default)]
         kind: DriveKind,
         /// URL から抽出した Drive ID (fileId もしくは folderId)。
+        #[serde(default)]
         id: String,
     },
     Iframe {
@@ -140,9 +142,10 @@ pub enum Embed {
 }
 
 /// `Embed::GoogleDrive` と `DriveItem` の種別判定。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum DriveKind {
+    #[default]
     File,
     Folder,
 }

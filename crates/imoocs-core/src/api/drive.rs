@@ -26,6 +26,7 @@ use std::time::{Duration, SystemTime};
 
 use once_cell::sync::Lazy;
 use regex::Regex;
+use reqwest::StatusCode;
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
@@ -59,6 +60,63 @@ static CONTENT_DISPOSITION_FILENAME_RE: Lazy<Regex> =
 static CONFIRM_TOKEN_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"name="confirm"\s+value="([^"]+)""#).unwrap());
 
+// ---------- Shared helpers ----------
+
+/// Reject IDs that could escape the cache directory or contain URL/shell
+/// metacharacters. Drive IDs are base64url-like (alphanumeric + `_-`).
+fn validate_drive_id(id: &str) -> Result<()> {
+    if id.is_empty()
+        || id.len() > 128
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(ImoocsError::Validation(format!(
+            "invalid Drive ID {id:?}: must be 1..=128 chars of [A-Za-z0-9_-]"
+        )));
+    }
+    Ok(())
+}
+
+/// Map HTTP status to a typed error. Used by both the initial fetch and the
+/// virus-scan confirm retry so they share the exit-code policy (DESIGN §4.7).
+fn classify_drive_status(status: StatusCode, what: &str) -> Result<()> {
+    match status.as_u16() {
+        200 => Ok(()),
+        404 => Err(ImoocsError::NotFound {
+            what: what.to_string(),
+        }),
+        403 => Err(ImoocsError::Auth {
+            reason: format!("access denied to {what}"),
+            hint: Some(
+                "make sure the INIAD account you logged in with has access to this resource".into(),
+            ),
+        }),
+        s if (500..600).contains(&s) => Err(ImoocsError::Api(format!("{what} returned {s}"))),
+        other => Err(ImoocsError::Api(format!(
+            "unexpected status {other} from {what}"
+        ))),
+    }
+}
+
+/// Write `bytes` to `target` atomically by writing to a per-process tempfile
+/// and renaming on success. Prevents partial-write races when two processes
+/// fetch the same fileId concurrently.
+fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {
+    let name = target
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".tmp".to_string());
+    let tmp_path = target.with_file_name(format!("{name}.tmp.{}", std::process::id()));
+    fs::write(&tmp_path, bytes)?;
+    fs::rename(&tmp_path, target).map_err(|e| {
+        // Best-effort cleanup; ignore secondary error.
+        let _ = fs::remove_file(&tmp_path);
+        ImoocsError::Io(e)
+    })?;
+    Ok(())
+}
+
 // ---------- Folder listing ----------
 
 /// List items in a Drive folder by scraping the rendered-HTML `_DRIVE_ivd` blob.
@@ -66,6 +124,7 @@ pub async fn list_drive_folder(
     session: &Session,
     folder_id: &str,
 ) -> Result<DriveFolderListing> {
+    validate_drive_id(folder_id)?;
     if !is_logged_in_google(session).await? {
         return Err(ImoocsError::Auth {
             reason: "Google session required for Drive folder listing".into(),
@@ -83,34 +142,18 @@ pub async fn list_drive_folder(
             hint: Some("run `imoocs auth login-google`".into()),
         });
     }
-    let status = resp.status();
-    match status.as_u16() {
-        200 => {}
-        404 => {
-            return Err(ImoocsError::NotFound {
-                what: format!("drive folder {folder_id}"),
-            })
-        }
-        403 => {
-            return Err(ImoocsError::Auth {
-                reason: format!("access denied to Drive folder {folder_id}"),
-                hint: Some(
-                    "make sure the INIAD account you logged in with has access to this folder"
-                        .into(),
-                ),
-            })
-        }
-        s if (500..600).contains(&s) => {
-            return Err(ImoocsError::Api(format!("Drive folder GET returned {s}")))
-        }
-        other => {
-            return Err(ImoocsError::Api(format!(
-                "unexpected status {other} from Drive folder GET"
-            )))
-        }
-    }
+    classify_drive_status(resp.status(), &format!("drive folder {folder_id}"))?;
 
     let body = resp.text().await?;
+    // Defensive: if we got 200 but the body smells like a Google sign-in page,
+    // treat it as an auth failure instead of a parse error.
+    if looks_like_google_login(&body) {
+        return Err(ImoocsError::Auth {
+            reason: "Drive folder returned Google sign-in HTML; SAML session may have expired"
+                .into(),
+            hint: Some("run `imoocs auth login-google`".into()),
+        });
+    }
     let items = parse_ivd(&body)?;
     let truncated = items.len() >= FOLDER_PAGE_HINT_SIZE;
     Ok(DriveFolderListing {
@@ -119,6 +162,12 @@ pub async fn list_drive_folder(
         truncated,
         fetched_at: now_rfc3339(),
     })
+}
+
+fn looks_like_google_login(body: &str) -> bool {
+    let head = &body[..body.len().min(4096)].to_ascii_lowercase();
+    head.contains("accounts.google.com/servicelogin")
+        || head.contains("accounts.google.com/v3/signin")
 }
 
 /// Extract items from the `window['_DRIVE_ivd']` payload embedded in a Drive
@@ -152,6 +201,15 @@ pub fn parse_ivd(html: &str) -> Result<Vec<DriveItem>> {
                 "skipping _DRIVE_ivd item with unexpected positional shape"
             ),
         }
+    }
+    // If the payload had items but none parsed, the positional shape has
+    // probably changed server-side. Surfacing a Parse error is better than
+    // silently returning an empty listing that an agent would read as
+    // "folder is empty".
+    if !items_arr.is_empty() && items.is_empty() {
+        return Err(ImoocsError::Parse(
+            "_DRIVE_ivd items all failed to parse; Drive payload shape may have changed".into(),
+        ));
     }
     Ok(items)
 }
@@ -210,6 +268,8 @@ pub async fn fetch_drive_file(
     file_id: &str,
     no_cache: bool,
 ) -> Result<DriveFileFetchResult> {
+    validate_drive_id(file_id)?;
+
     // Cache hit path: we need filename from a side-by-side meta JSON.
     if !no_cache {
         if let Some(hit) = try_cache(paths, file_id)? {
@@ -235,34 +295,7 @@ pub async fn fetch_drive_file(
             hint: Some("run `imoocs auth login-google`".into()),
         });
     }
-    let status = resp.status();
-    match status.as_u16() {
-        200 => {}
-        404 => {
-            return Err(ImoocsError::NotFound {
-                what: format!("drive file {file_id}"),
-            })
-        }
-        403 => {
-            return Err(ImoocsError::Auth {
-                reason: format!("access denied to Drive file {file_id}"),
-                hint: Some(
-                    "make sure the INIAD account you logged in with has access to this file"
-                        .into(),
-                ),
-            })
-        }
-        s if (500..600).contains(&s) => {
-            return Err(ImoocsError::Api(format!(
-                "Drive file GET returned {s}"
-            )))
-        }
-        other => {
-            return Err(ImoocsError::Api(format!(
-                "unexpected status {other} from Drive file GET"
-            )))
-        }
-    }
+    classify_drive_status(resp.status(), &format!("drive file {file_id}"))?;
 
     let content_disposition = resp
         .headers()
@@ -276,26 +309,19 @@ pub async fn fetch_drive_file(
         .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
 
     let bytes = resp.bytes().await?;
-    let first_chunk = &bytes[..bytes.len().min(4096)];
 
-    // Google-native type detection: docs.google.com native files return an
-    // empty / tiny HTML page from drive.usercontent.google.com.
-    if matches!(content_type.as_deref(), Some("text/html"))
-        && first_chunk.starts_with(b"<!DOCTYPE html>")
+    // Detect non-binary responses: empty body, login HTML, virus-scan
+    // interstitial, or any other HTML we should refuse to cache as a file.
+    if let Some(retry) = detect_html_response(
+        session,
+        paths,
+        file_id,
+        content_type.as_deref(),
+        &bytes,
+    )
+    .await?
     {
-        if let Some(confirm_token) = CONFIRM_TOKEN_RE
-            .captures(&String::from_utf8_lossy(first_chunk))
-            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
-        {
-            // Rare: confirm=t was not honoured. Retry with the real token once.
-            warn!(token = %confirm_token, "hit virus-scan interstitial; retrying with server-provided confirm token");
-            return fetch_with_confirm(session, paths, file_id, &confirm_token).await;
-        }
-        return Err(ImoocsError::Api(
-            "Drive download returned HTML (possibly a Google-native type like Docs/Sheets/Slides). \
-             Native export is scheduled for v2; for pubembed Slides use `imoocs slide fetch`."
-                .into(),
-        ));
+        return Ok(retry);
     }
 
     let filename = content_disposition
@@ -304,6 +330,67 @@ pub async fn fetch_drive_file(
         .unwrap_or_else(|| format!("{file_id}.bin"));
 
     save_drive_file(paths, file_id, &filename, content_type.as_deref(), &bytes)
+}
+
+/// Inspect an initial Drive response body. Returns `Ok(Some(result))` only if a
+/// virus-scan retry succeeded with the server-provided `confirm` token.
+/// Returns `Ok(None)` when the response is a real binary we can cache.
+/// Errors on every other HTML shape (empty body, login redirect, unrecognised HTML).
+async fn detect_html_response(
+    session: &Session,
+    paths: &Paths,
+    file_id: &str,
+    content_type: Option<&str>,
+    bytes: &[u8],
+) -> Result<Option<DriveFileFetchResult>> {
+    let is_html = matches!(content_type, Some("text/html"));
+    if !is_html {
+        return Ok(None);
+    }
+    // `drive.usercontent.google.com` returns an empty body for Google native
+    // types (Docs/Sheets/Slides). Treat anything HTML-ish smaller than 1 KB as
+    // a native export failure so agents don't see a 0-byte success.
+    if bytes.len() < 1024 {
+        return Err(ImoocsError::Api(
+            "Drive download returned empty/tiny HTML (<1KB). This is typically a Google native \
+             type (Docs/Sheets/Slides) returned empty from drive.usercontent.google.com. \
+             Native export is scheduled for v2; for pubembed Slides use `imoocs slide fetch`."
+                .into(),
+        ));
+    }
+    // Larger HTML — look for a Google login page (rare because we check
+    // final_url earlier, but kept as a defence in depth).
+    let head_lower = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_ascii_lowercase();
+    if head_lower.contains("accounts.google.com/servicelogin")
+        || head_lower.contains("accounts.google.com/v3/signin")
+    {
+        return Err(ImoocsError::Auth {
+            reason: "Drive download returned Google sign-in HTML; SAML session may have expired"
+                .into(),
+            hint: Some("run `imoocs auth login-google`".into()),
+        });
+    }
+    // Virus-scan interstitial fallback. With `confirm=t` prebaked into the URL
+    // this should basically never fire, but Google may tighten token validation
+    // in the future.
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]);
+    if let Some(confirm_token) = CONFIRM_TOKEN_RE
+        .captures(&head)
+        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+    {
+        warn!(
+            token = %confirm_token,
+            "hit virus-scan interstitial; retrying with server-provided confirm token"
+        );
+        return fetch_with_confirm(session, paths, file_id, &confirm_token)
+            .await
+            .map(Some);
+    }
+    Err(ImoocsError::Api(
+        "Drive download returned HTML of unexpected shape; refusing to cache as binary. \
+         This may be a Google-native type (Docs/Sheets/Slides) — v2 will add native export."
+            .into(),
+    ))
 }
 
 async fn fetch_with_confirm(
@@ -315,13 +402,18 @@ async fn fetch_with_confirm(
     let url = format!(
         "https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm={token}"
     );
-    let resp = session
-        .client
-        .get(&url)
-        .send()
-        .await?
-        .error_for_status()
-        .map_err(|e| ImoocsError::Api(format!("Drive confirm-retry failed: {e}")))?;
+    let resp = session.client.get(&url).send().await?;
+    let final_url = resp.url().clone();
+    if final_url.host_str() == Some("accounts.google.com") {
+        return Err(ImoocsError::Auth {
+            reason: "Drive confirm-retry redirected to sign-in; SAML session expired".into(),
+            hint: Some("run `imoocs auth login-google`".into()),
+        });
+    }
+    classify_drive_status(
+        resp.status(),
+        &format!("drive file {file_id} (confirm retry)"),
+    )?;
 
     let content_disposition = resp
         .headers()
@@ -334,10 +426,8 @@ async fn fetch_with_confirm(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
     let bytes = resp.bytes().await?;
-    if bytes.len() < 4096
-        && matches!(content_type.as_deref(), Some("text/html"))
-        && bytes.starts_with(b"<!DOCTYPE html>")
-    {
+    // Still HTML? give up to avoid loop / bad cache.
+    if matches!(content_type.as_deref(), Some("text/html")) {
         return Err(ImoocsError::Api(
             "Drive confirm-retry still returned HTML; refusing to cache".into(),
         ));
@@ -372,7 +462,9 @@ fn save_drive_file(
         Some(e) => format!("{file_id}.{e}"),
         None => format!("{file_id}.bin"),
     });
-    fs::write(&binary_path, bytes)?;
+    // Write binary first (atomic tempfile + rename), then meta. If the process
+    // dies between the two, try_cache will find no meta and re-download.
+    atomic_write(&binary_path, bytes)?;
 
     let meta = DriveCacheMeta {
         filename: filename.to_string(),
@@ -382,7 +474,7 @@ fn save_drive_file(
     };
     let meta_path = drive_meta_path(paths, file_id);
     let meta_json = serde_json::to_string_pretty(&meta)?;
-    fs::write(&meta_path, meta_json)?;
+    atomic_write(&meta_path, meta_json.as_bytes())?;
 
     Ok(DriveFileFetchResult {
         file_id: file_id.to_string(),
@@ -419,7 +511,20 @@ fn try_cache(paths: &Paths, file_id: &str) -> Result<Option<DriveFileFetchResult
         Some(e) => format!("{file_id}.{e}"),
         None => format!("{file_id}.bin"),
     });
-    if !binary_path.exists() {
+    let binary_meta = match fs::metadata(&binary_path) {
+        Ok(m) => m,
+        Err(_) => return Ok(None),
+    };
+    // Integrity check: cached binary must match the size recorded in meta.
+    // Catches the case where a concurrent fetch truncated the binary while we
+    // were reading meta.
+    if binary_meta.len() != meta.size_bytes {
+        warn!(
+            path = %binary_path.display(),
+            expected = meta.size_bytes,
+            actual = binary_meta.len(),
+            "drive cache binary size mismatch — ignoring cache"
+        );
         return Ok(None);
     }
     Ok(Some(DriveFileFetchResult {
@@ -547,5 +652,84 @@ mod tests {
         let input = r"\x5b\x221ABC\x22,\x22\/path\x22\x5d";
         let out = unescape_ivd(input);
         assert_eq!(out, r#"["1ABC","/path"]"#);
+    }
+
+    #[test]
+    fn validate_drive_id_accepts_typical_ids() {
+        validate_drive_id("FAKE_DRIVE_FILE_ID_HIST_REDACT001").unwrap();
+        validate_drive_id("FAKE_DRIVE_FOLDER_ID_HIST_REDACT1").unwrap();
+        validate_drive_id("abc").unwrap();
+    }
+
+    #[test]
+    fn validate_drive_id_rejects_path_traversal() {
+        for bad in &[
+            "",
+            "../../etc/passwd",
+            "..",
+            "a/b",
+            "foo.bar",
+            "has space",
+            "with#hash",
+            "with?q",
+            &"x".repeat(129),
+        ] {
+            assert!(
+                validate_drive_id(bad).is_err(),
+                "validate_drive_id should reject {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_ivd_shape_change_surfaces_parse_error() {
+        // items array is non-empty but each item is a string (not the expected
+        // positional array). parse_item returns None for all items.
+        let synthetic_payload = r"\x5b\x5b\x22not-an-item\x22\x5d\x5d";
+        let html = format!(
+            "<html><body><script>window['_DRIVE_ivd'] = '{synthetic_payload}';</script></body></html>"
+        );
+        let err = parse_ivd(&html).unwrap_err();
+        match err {
+            ImoocsError::Parse(msg) => {
+                assert!(msg.contains("all failed to parse"), "msg was {msg:?}");
+            }
+            other => panic!("expected Parse error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_ivd_empty_items_is_still_ok() {
+        let empty_payload = r"\x5b\x5b\x5d\x5d";
+        let html = format!(
+            "<html><body><script>window['_DRIVE_ivd'] = '{empty_payload}';</script></body></html>"
+        );
+        let items = parse_ivd(&html).expect("empty folder should parse");
+        assert_eq!(items.len(), 0);
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "imoocs-atomic-write-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("file.bin");
+        atomic_write(&target, b"first").unwrap();
+        atomic_write(&target, b"second").unwrap();
+        let got = fs::read(&target).unwrap();
+        assert_eq!(got, b"second");
+        // No leftover tempfile.
+        let remaining: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name()))
+            .collect();
+        assert_eq!(
+            remaining.len(),
+            1,
+            "expected only target file, got {remaining:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 }

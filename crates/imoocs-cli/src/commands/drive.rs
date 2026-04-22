@@ -118,17 +118,21 @@ enum DriveTarget {
     Unrecognized,
 }
 
+// All patterns exclude `#` from the id capture so fragment anchors
+// (e.g. `/file/d/<id>#foo`) don't contaminate the fileId.
 static FILE_URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^https://drive\.google\.com/file/d/([^/?]+)").unwrap()
+    Regex::new(r"^https://drive\.google\.com/file/d/([^/?#]+)").unwrap()
 });
 static FOLDER_URL_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^https://drive\.google\.com/drive/folders/([^/?#]+)").unwrap()
 });
+// `(?:[^#]*&)?id=` makes the prefix optional so both `uc?id=X` (id-first) and
+// `uc?export=download&id=X` (id-last) are accepted.
 static UC_URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^https://drive\.google\.com/uc\?[^#]*[?&]id=([^&#]+)").unwrap()
+    Regex::new(r"^https://drive\.google\.com/uc\?(?:[^#]*&)?id=([^&#]+)").unwrap()
 });
 static USERCONTENT_URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^https://drive\.usercontent\.google\.com/download\?[^#]*[?&]?id=([^&#]+)")
+    Regex::new(r"^https://drive\.usercontent\.google\.com/download\?(?:[^#]*&)?id=([^&#]+)")
         .unwrap()
 });
 static BARE_ID_RE: Lazy<Regex> =
@@ -185,6 +189,38 @@ mod tests {
         assert_eq!(
             parse_drive_target("https://drive.google.com/uc?export=download&id=1ABC_23"),
             DriveTarget::File("1ABC_23".into())
+        );
+    }
+
+    #[test]
+    fn parses_id_first_uc_url() {
+        assert_eq!(
+            parse_drive_target("https://drive.google.com/uc?id=1ABC_23&export=download"),
+            DriveTarget::File("1ABC_23".into())
+        );
+    }
+
+    #[test]
+    fn parses_id_first_usercontent_url() {
+        assert_eq!(
+            parse_drive_target("https://drive.usercontent.google.com/download?id=1ABC_23"),
+            DriveTarget::File("1ABC_23".into())
+        );
+    }
+
+    #[test]
+    fn file_url_fragment_does_not_leak_into_id() {
+        assert_eq!(
+            parse_drive_target("https://drive.google.com/file/d/1ABC_23/view#junk"),
+            DriveTarget::File("1ABC_23".into())
+        );
+    }
+
+    #[test]
+    fn folder_url_fragment_does_not_leak_into_id() {
+        assert_eq!(
+            parse_drive_target("https://drive.google.com/drive/folders/1ABC_23#junk"),
+            DriveTarget::Folder("1ABC_23".into())
         );
     }
 
