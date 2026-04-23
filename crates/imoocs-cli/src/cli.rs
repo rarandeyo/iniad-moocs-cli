@@ -86,7 +86,7 @@ pub enum Command {
         #[command(subcommand)]
         cmd: commands::slide::SlideCommand,
     },
-    /// Google Drive 関連のサブコマンド (list / fetch)。
+    /// Google Drive 関連のサブコマンド (list / search / fetch)。
     #[command(visible_alias = "d")]
     Drive {
         #[command(subcommand)]

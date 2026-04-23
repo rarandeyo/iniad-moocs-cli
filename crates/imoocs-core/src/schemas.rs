@@ -180,6 +180,19 @@ pub struct DriveFolderListing {
     pub fetched_at: String,
 }
 
+/// `imoocs drive search` の envelope data。
+///
+/// `items` は folder のみを返す。Drive XHR 側の query で folder に絞るが、
+/// 念のため client 側でも folder 以外は除外する。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveSearchResult {
+    pub query: String,
+    pub exact: bool,
+    pub items: Vec<DriveItem>,
+    pub fetched_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DriveFileFetchResult {

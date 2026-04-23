@@ -58,7 +58,8 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
    /imoocs-drive-setup
    ```
    Agent 上でこの slash command を実行すると、履修中のコースごとに授業資料のDrive フォルダを対話で登録する 
-(保存先:`$XDG_CONFIG_HOME/imoocs/course-drive-folders.toml`)。
+(保存先:`$XDG_CONFIG_HOME/imoocs/course-drive-folders.toml`)。root は Drive 上の
+`[受講生]講義資料` フォルダ名から自動発見する。
 
 ## Config
 
@@ -98,7 +99,7 @@ imoocs course {list,show}
 imoocs lesson show <courseId> <lessonId> [--page <p>] [--fetch-slides] [--with-assignments]
 imoocs slide fetch <embedUrl>
 imoocs assignment {list,show,submit,upload}         # --url <url>, --lesson, --status 対応 (submit/upload は常に確定)
-imoocs drive {list,fetch,folders}                   # list/fetch は SAML cookie で Drive、folders は course-drive-folders.toml を表示
+imoocs drive {list,search,fetch,folders}            # search/list/fetch は SAML cookie で Drive、folders は course-drive-folders.toml を表示
 imoocs open <url>                                   # URL 1 本でルーティング
 imoocs completion {generate,install}                # generate=stdout / install=XDG 標準パスに配置
 imoocs {doctor,version}
@@ -118,12 +119,15 @@ Exit code: 0 / 1 API / 2 Auth / 3 Validation / 4 NotFound / 5 Internal / 6 Netwo
 Rust toolchain は `mise.toml` で `1.93.1` に固定。
 
 ```sh
-mise install       # 初回のみ
+mise trust . && mise install       # 初回のみ
+```
+
+```sh
 cargo build --workspace
 ```
 
 mise を使わない場合は `rustup` が `Cargo.toml` の `rust-version = 1.93` を見て揃える。
-Linux でビルド時に `dbus-1` が見つからないエラーが出たら `libdbus-1-dev` と `pkg-config` を OS のパッケージマネージャで入れる (通常は既に入っている)。
+Linux でビルド時に `dbus-1` が見つからないエラーが出たら `libdbus-1-dev` と `pkg-config` を OS のパッケージマネージャで入れる。
 
 ## Docs
 

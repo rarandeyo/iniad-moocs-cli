@@ -1,4 +1,4 @@
-//! `imoocs drive list|fetch|folders` — session の SAML cookie を使った Drive folder/file アクセス、
+//! `imoocs drive list|search|fetch|folders` — session の SAML cookie を使った Drive folder/file アクセス、
 //! および `course-drive-folders.toml` の表示。
 
 use std::fmt::Write as _;
@@ -8,10 +8,11 @@ use std::process::ExitCode;
 use anyhow::Result;
 use clap::Subcommand;
 use imoocs_core::{
-    api::drive::{fetch_drive_file, list_drive_folder},
+    api::drive::{fetch_drive_file, list_drive_folder, search_drive_folders},
     drive_folders::{CourseDriveFolders, MatchStrategy},
     envelope::ErrorDetail,
     paths::Paths,
+    schemas::DriveSearchResult,
     session::Session,
     ImoocsError,
 };
@@ -23,12 +24,22 @@ use crate::output;
 
 #[derive(Debug, Subcommand)]
 pub enum DriveCommand {
-    /// Drive folder の中身を列挙する (`window['_DRIVE_ivd']` を scrape)。
+    /// Drive folder の中身を列挙する (認証付き XHR)。
     ///
     /// `/drive/folders/<id>` URL または folder id を受け付ける。
     List {
         /// `/drive/folders/<id>` URL か folder id。
         target: String,
+    },
+    /// Drive folder を名前で検索する。
+    ///
+    /// 既定は partial match。`--exact` で folder 名の完全一致に切り替える。
+    Search {
+        /// 検索する folder 名。
+        name: String,
+        /// folder 名の完全一致だけに絞る。
+        #[arg(long)]
+        exact: bool,
     },
     /// 単一の Drive ファイルを cache にダウンロードする。
     ///
@@ -83,6 +94,13 @@ pub async fn run(global: &GlobalArgs, cmd: DriveCommand) -> Result<ExitCode> {
                 Err(e) => Ok(emit_err(e)),
             }
         }
+        DriveCommand::Search { name, exact } => match search_drive_folders(&session, &name, exact).await {
+            Ok(result) => {
+                output::emit_success_text(result, global.format, render_search_result);
+                Ok(ExitCode::from(0))
+            }
+            Err(e) => Ok(emit_err(e)),
+        },
         DriveCommand::Fetch { target, out, no_cache } => {
             let file_id = match parse_drive_target(&target) {
                 DriveTarget::File(id) | DriveTarget::Ambiguous(id) => id,
@@ -169,6 +187,24 @@ fn render_folders(report: &Option<CourseDriveFolders>) -> String {
     out
 }
 
+fn render_search_result(result: &DriveSearchResult) -> String {
+    let mut out = String::new();
+    let mode = if result.exact { "exact" } else { "partial" };
+    let _ = writeln!(out, "Drive folder search: {} ({mode})", result.query);
+    if result.items.is_empty() {
+        let _ = write!(out, "(no folders found)");
+        return out;
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "id | name | modifiedAt");
+    for item in &result.items {
+        let modified_at = item.modified_at.as_deref().unwrap_or("-");
+        let _ = writeln!(out, "{} | {} | {}", item.id, item.name, modified_at);
+    }
+    let _ = write!(out, "\n{} folders", result.items.len());
+    out
+}
+
 fn strategy_label(s: MatchStrategy) -> &'static str {
     match s {
         MatchStrategy::Exact => "exact",
@@ -229,6 +265,7 @@ fn emit_err(err: ImoocsError) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use imoocs_core::schemas::{DriveItem, DriveSearchResult};
 
     #[test]
     fn parses_file_view_url() {
@@ -305,5 +342,26 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert_eq!(parse_drive_target("http://example.com/"), DriveTarget::Unrecognized);
+    }
+
+    #[test]
+    fn render_search_result_shows_folder_rows() {
+        let result = DriveSearchResult {
+            query: "[受講生]講義資料".into(),
+            exact: true,
+            items: vec![DriveItem {
+                id: "FAKE_ROOT".into(),
+                name: "[受講生]講義資料".into(),
+                mime: "application/vnd.google-apps.folder".into(),
+                kind: imoocs_core::schemas::DriveKind::Folder,
+                modified_at: Some("2026-04-24T00:00:00Z".into()),
+            }],
+            fetched_at: "2026-04-24T00:00:00Z".into(),
+        };
+
+        let text = render_search_result(&result);
+        assert!(text.contains("Drive folder search: [受講生]講義資料 (exact)"));
+        assert!(text.contains("FAKE_ROOT | [受講生]講義資料 | 2026-04-24T00:00:00Z"));
+        assert!(text.contains("1 folders"));
     }
 }

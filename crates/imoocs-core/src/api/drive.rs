@@ -1,11 +1,11 @@
 //! SAML 認証済み session を使った Google Drive のファイル / フォルダアクセス。
 //!
-//! 2 つの entry point:
+//! 3 つの entry point:
 //!
-//! - [`list_drive_folder`] — `drive.google.com/drive/folders/<id>` を GET し、
-//!   返却 HTML から `window['_DRIVE_ivd']` の payload を抜き出して
-//!   [`DriveFolderListing`] に parse する。Drive API / OAuth は不要 — INIAD の
-//!   Google アカウントがアクセス可能な folder であれば session の SAML cookie で十分。
+//! - [`list_drive_folder`] — folder id 配下の children を XHR で列挙し、
+//!   [`DriveFolderListing`] に parse する。
+//! - [`search_drive_folders`] — folder 名を XHR query で検索し、
+//!   [`DriveSearchResult`] に parse する。
 //! - [`fetch_drive_file`] —
 //!   `drive.usercontent.google.com/download?id=<id>&export=download&confirm=t` を GET し、
 //!   結果を `$XDG_CACHE_HOME/imoocs/drive/<fileId>.<ext>` に 24h TTL でキャッシュする。
@@ -34,7 +34,7 @@ use tracing::{debug, info, warn};
 use crate::auth::is_logged_in_google;
 use crate::error::{ImoocsError, Result};
 use crate::paths::Paths;
-use crate::schemas::{DriveFileFetchResult, DriveFolderListing, DriveItem, DriveKind};
+use crate::schemas::{DriveFileFetchResult, DriveFolderListing, DriveItem, DriveKind, DriveSearchResult};
 use crate::session::Session;
 
 const DRIVE_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -172,6 +172,9 @@ fn classify_xhr_error(status: StatusCode, body: &str, what: &str) -> ImoocsError
         })
         .unwrap_or_default();
     match status.as_u16() {
+        400 => ImoocsError::Api(format!(
+            "Drive XHR rejected our query at {what}: {err_msg}. Query semantics may have changed upstream."
+        )),
         403 if err_msg.contains("unregistered callers")
             || err_msg.contains("API key not valid")
             || err_msg.contains("API consumer identity") =>
@@ -201,6 +204,20 @@ fn parse_xhr_page(body: &str) -> Result<(Vec<DriveItem>, Option<String>)> {
     Ok((items, page.next_page_token))
 }
 
+fn drive_query_literal(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+fn build_folder_children_query(folder_id: &str) -> String {
+    format!("'{folder_id}' in parents")
+}
+
+fn build_folder_name_query(name: &str, exact: bool) -> String {
+    let escaped = drive_query_literal(name);
+    let comparator = if exact { "=" } else { "contains" };
+    format!("title {comparator} '{escaped}' and mimeType = 'application/vnd.google-apps.folder'")
+}
+
 pub async fn list_drive_folder(session: &Session, folder_id: &str) -> Result<DriveFolderListing> {
     list_drive_folder_at(session, folder_id, DRIVE_XHR_ENDPOINT).await
 }
@@ -227,17 +244,65 @@ async fn list_drive_folder_at(session: &Session, folder_id: &str, endpoint: &str
     })
 }
 
+pub async fn search_drive_folders(session: &Session, name: &str, exact: bool) -> Result<DriveSearchResult> {
+    search_drive_folders_at(session, name, exact, DRIVE_XHR_ENDPOINT).await
+}
+
+async fn search_drive_folders_at(
+    session: &Session,
+    name: &str,
+    exact: bool,
+    endpoint: &str,
+) -> Result<DriveSearchResult> {
+    let query_name = name.trim();
+    if query_name.is_empty() {
+        return Err(ImoocsError::Validation("Drive search query must not be empty".into()));
+    }
+    if !is_logged_in_google(session).await? {
+        return Err(ImoocsError::Auth {
+            reason: "Google session required for Drive folder search".into(),
+            hint: Some("run `imoocs auth login-google`".into()),
+        });
+    }
+    let endpoint_url: reqwest::Url = endpoint
+        .parse()
+        .map_err(|e| ImoocsError::Validation(format!("invalid Drive XHR endpoint URL {endpoint:?}: {e}")))?;
+    let auth = build_drive_authorization(session, &endpoint_url)?;
+    let search_query = build_folder_name_query(query_name, exact);
+    let what = format!("drive folder search for {:?}", query_name);
+    let mut items = fetch_drive_query_pages(&session.client, endpoint, &auth, &search_query, &what).await?;
+    items.retain(|item| item.kind == DriveKind::Folder);
+    Ok(DriveSearchResult {
+        query: query_name.to_string(),
+        exact,
+        items,
+        fetched_at: now_rfc3339(),
+    })
+}
+
 async fn fetch_all_pages(
     client: &reqwest::Client,
     endpoint: &str,
     auth: &str,
     folder_id: &str,
 ) -> Result<Vec<DriveItem>> {
+    let query = build_folder_children_query(folder_id);
+    let what = format!("drive folder {folder_id}");
+    fetch_drive_query_pages(client, endpoint, auth, &query, &what).await
+}
+
+async fn fetch_drive_query_pages(
+    client: &reqwest::Client,
+    endpoint: &str,
+    auth: &str,
+    query: &str,
+    what: &str,
+) -> Result<Vec<DriveItem>> {
     let mut all = Vec::<DriveItem>::new();
     let mut page_token: Option<String> = None;
     for iter in 0..DRIVE_XHR_MAX_PAGES {
         let mut query: Vec<(&str, String)> = vec![
-            ("q", format!("'{folder_id}' in parents")),
+            ("q", query.to_string()),
             ("pageSize", DRIVE_XHR_PAGE_SIZE.to_string()),
             (
                 "fields",
@@ -250,7 +315,7 @@ async fn fetch_all_pages(
         if let Some(t) = &page_token {
             query.push(("pageToken", t.clone()));
         }
-        info!(%endpoint, %folder_id, iter, "fetching Drive XHR page");
+        info!(%endpoint, %what, iter, "fetching Drive XHR page");
         let resp = client
             .get(endpoint)
             .query(&query)
@@ -269,11 +334,7 @@ async fn fetch_all_pages(
         let status = resp.status();
         let body = resp.text().await?;
         if !status.is_success() {
-            return Err(classify_xhr_error(
-                status,
-                &body,
-                &format!("drive folder {folder_id} (page {iter})"),
-            ));
+            return Err(classify_xhr_error(status, &body, &format!("{what} (page {iter})")));
         }
         let (page_items, next) = parse_xhr_page(&body)?;
         debug!(iter, count = page_items.len(), "drive xhr page received");
@@ -287,8 +348,8 @@ async fn fetch_all_pages(
         }
     }
     Err(ImoocsError::Api(format!(
-        "drive folder listing hit safety cap ({} pages) without terminating; Drive XHR endpoint may have changed",
-        DRIVE_XHR_MAX_PAGES
+        "{what} hit safety cap ({} pages) without terminating; Drive XHR endpoint may have changed",
+        DRIVE_XHR_MAX_PAGES,
     )))
 }
 
@@ -646,6 +707,24 @@ mod tests {
     }
 
     #[test]
+    fn build_folder_name_query_exact_escapes_literal() {
+        let got = build_folder_name_query("Bob's \\ folder", true);
+        assert_eq!(
+            got,
+            "title = 'Bob\\'s \\\\ folder' and mimeType = 'application/vnd.google-apps.folder'"
+        );
+    }
+
+    #[test]
+    fn build_folder_name_query_partial_uses_contains() {
+        let got = build_folder_name_query("[受講生]講義資料", false);
+        assert_eq!(
+            got,
+            "title contains '[受講生]講義資料' and mimeType = 'application/vnd.google-apps.folder'"
+        );
+    }
+
+    #[test]
     fn parse_xhr_page1_returns_items_and_next_token() {
         let (items, next) = parse_xhr_page(XHR_PAGE1_FIXTURE).expect("page1 parse");
         assert_eq!(items.len(), 3);
@@ -701,6 +780,16 @@ mod tests {
             matches!(err, ImoocsError::Auth { .. }),
             "expected Auth error, got {err:?}"
         );
+    }
+
+    #[test]
+    fn classify_xhr_error_invalid_query_maps_to_api() {
+        let body = r#"{"error":{"code":400,"message":"Invalid Value"}}"#;
+        let err = classify_xhr_error(StatusCode::BAD_REQUEST, body, "test search");
+        match err {
+            ImoocsError::Api(m) => assert!(m.contains("Query semantics may have changed"), "got {m:?}"),
+            other => panic!("expected Api error, got {other:?}"),
+        }
     }
 
     #[test]
@@ -783,6 +872,46 @@ mod tests {
             ImoocsError::Api(s) => assert!(s.contains("rejected our API key"), "got {s:?}"),
             other => panic!("expected Api error, got {other:?}"),
         }
+        m.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn fetch_drive_query_pages_uses_arbitrary_query() {
+        let mut server = mockito::Server::new_async().await;
+        let m = server
+            .mock("GET", "/drive/v2beta/files")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "q".into(),
+                "title = '[受講生]講義資料' and mimeType = 'application/vnd.google-apps.folder'".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json; charset=UTF-8")
+            .with_body(
+                r#"{"items":[
+                    {"id":"FOLDER_A","title":"[受講生]講義資料","mimeType":"application/vnd.google-apps.folder"},
+                    {"id":"FILE_B","title":"ignore.pdf","mimeType":"application/pdf"}
+                ]}"#,
+            )
+            .expect(1)
+            .create_async()
+            .await;
+
+        let endpoint = format!("{}/drive/v2beta/files", server.url());
+        let client = reqwest::Client::new();
+        let items = fetch_drive_query_pages(
+            &client,
+            &endpoint,
+            "SAPISIDHASH fake",
+            "title = '[受講生]講義資料' and mimeType = 'application/vnd.google-apps.folder'",
+            "drive folder search",
+        )
+        .await
+        .expect("fetch_drive_query_pages should succeed");
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].kind, DriveKind::Folder);
+        assert_eq!(items[1].kind, DriveKind::File);
+
         m.assert_async().await;
     }
 

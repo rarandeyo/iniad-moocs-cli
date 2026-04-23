@@ -77,7 +77,7 @@ mod tests {
     use super::*;
 
     const FULL_SAMPLE: &str = r#"
-driveRootFolderId = "FAKE_DRIVE_ROOT_HIST_REDACT0001"
+driveRootFolderId = "FAKE_DRIVE_ROOT_ID_SAMPLE_0001"
 
 [[courses]]
 year = 2026
@@ -100,7 +100,7 @@ matchStrategy = "unresolved"
     #[test]
     fn parses_full_sample() {
         let cdf: CourseDriveFolders = toml::from_str(FULL_SAMPLE).unwrap();
-        assert_eq!(cdf.drive_root_folder_id, "FAKE_DRIVE_ROOT_HIST_REDACT0001");
+        assert_eq!(cdf.drive_root_folder_id, "FAKE_DRIVE_ROOT_ID_SAMPLE_0001");
         assert_eq!(cdf.courses.len(), 2);
         assert_eq!(cdf.courses[0].course_id, "INI301");
         assert_eq!(cdf.courses[0].match_strategy, MatchStrategy::Exact);
