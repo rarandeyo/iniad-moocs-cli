@@ -256,6 +256,9 @@ fn map_http_err_with_context(status: reqwest::StatusCode, body: Option<String>, 
             reason: format!("HTTP {status} on {endpoint_hint}"),
             hint: Some("run `imoocs auth login`".into()),
         },
+        StatusCode::FORBIDDEN => ImoocsError::NonPublic {
+            endpoint: endpoint_hint.to_string(),
+        },
         StatusCode::NOT_FOUND => ImoocsError::NotFound {
             what: format!(
                 "{endpoint_hint} returned 404{}",
@@ -282,6 +285,9 @@ fn map_http_err(status: reqwest::StatusCode, body: Option<String>) -> ImoocsErro
         StatusCode::UNAUTHORIZED | StatusCode::FOUND => ImoocsError::Auth {
             reason: format!("HTTP {status}"),
             hint: Some("run `imoocs auth login`".into()),
+        },
+        StatusCode::FORBIDDEN => ImoocsError::NonPublic {
+            endpoint: "assignment".into(),
         },
         StatusCode::SERVICE_UNAVAILABLE => ImoocsError::Api(format!("service unavailable (503): {msg}")),
         StatusCode::NOT_FOUND => ImoocsError::NotFound {
@@ -325,3 +331,39 @@ struct AssessmentRaw {
 // Dummy to silence unused warning if Serialize is ever required.
 #[derive(Serialize)]
 struct _Unused;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn forbidden_maps_to_non_public_with_endpoint() {
+        let err = map_http_err_with_context(StatusCode::FORBIDDEN, None, "/problem");
+        match err {
+            ImoocsError::NonPublic { endpoint } => assert_eq!(endpoint, "/problem"),
+            other => panic!("expected NonPublic, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn forbidden_without_context_maps_to_non_public() {
+        let err = map_http_err(StatusCode::FORBIDDEN, None);
+        match err {
+            ImoocsError::NonPublic { endpoint } => assert_eq!(endpoint, "assignment"),
+            other => panic!("expected NonPublic, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unauthorized_still_maps_to_auth() {
+        let err = map_http_err_with_context(StatusCode::UNAUTHORIZED, None, "/status");
+        assert!(matches!(err, ImoocsError::Auth { .. }));
+    }
+
+    #[test]
+    fn not_found_still_maps_to_not_found() {
+        let err = map_http_err_with_context(StatusCode::NOT_FOUND, None, "/problem");
+        assert!(matches!(err, ImoocsError::NotFound { .. }));
+    }
+}
