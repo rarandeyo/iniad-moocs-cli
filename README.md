@@ -83,6 +83,18 @@ All commands output a stable JSON envelope:
 
 Exit code: 0 / 1 API / 2 Auth / 3 Validation / 4 NotFound / 5 Internal / 6 Network / 7 NetworkRestricted / 8 NonPublic.
 
+## Development
+
+Rust toolchain は `mise.toml` で `1.93.1` に固定。
+
+```sh
+mise install       # 初回のみ
+cargo build --workspace
+```
+
+mise を使わない場合は `rustup` が `Cargo.toml` の `rust-version = 1.93` を見て揃える。
+Linux でビルド時に `dbus-1` が見つからないエラーが出たら `libdbus-1-dev` と `pkg-config` を OS のパッケージマネージャで入れる (通常は既に入っている)。
+
 ## Docs
 
 - [docs/DESIGN.md](./docs/DESIGN.md) — 設計思想、モジュール構成、

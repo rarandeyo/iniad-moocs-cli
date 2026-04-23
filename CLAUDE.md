@@ -4,6 +4,8 @@ Claude Code がこのリポジトリで作業する際の前提。詳しい設�
 [docs/DESIGN.md](./docs/DESIGN.md)、エージェント向け操作手順は
 [skills/imoocs/SKILL.md](./skills/imoocs/SKILL.md) を読む。
 
+- Rust toolchain は `mise.toml` で 1.93.1 に固定 (`mise install` で取得)。
+
 ## 学内ネットワーク制限について
 
 MOOCs の `status=network` / `NETWORK_RESTRICTED` (exit 7) は学内 IP 限定。

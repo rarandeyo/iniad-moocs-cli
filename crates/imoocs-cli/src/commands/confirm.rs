@@ -1,5 +1,3 @@
-
-
 use std::io::IsTerminal;
 
 use dialoguer::{theme::ColorfulTheme, Confirm};

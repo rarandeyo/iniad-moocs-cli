@@ -102,7 +102,9 @@ impl ImoocsError {
         match self {
             Self::Auth { hint, .. } => hint.as_deref(),
             Self::NetworkRestricted => Some("Connect to INIAD network (on-campus or VPN) and retry."),
-            Self::NonPublic { .. } => Some("Assignment not yet public (hidden until release). Wait for release or pick another problem."),
+            Self::NonPublic { .. } => {
+                Some("Assignment not yet public (hidden until release). Wait for release or pick another problem.")
+            }
             _ => None,
         }
     }
@@ -126,10 +128,7 @@ mod tests {
 
     #[test]
     fn existing_variants_unchanged() {
-        assert_eq!(
-            ImoocsError::NetworkRestricted.exit_code(),
-            ExitCode::NetworkRestricted
-        );
+        assert_eq!(ImoocsError::NetworkRestricted.exit_code(), ExitCode::NetworkRestricted);
         assert_eq!(ImoocsError::NetworkRestricted.error_code(), "NETWORK_RESTRICTED");
         assert_eq!(
             ImoocsError::NotFound { what: "x".into() }.exit_code(),

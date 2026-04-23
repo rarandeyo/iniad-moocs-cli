@@ -205,11 +205,7 @@ pub async fn list_drive_folder(session: &Session, folder_id: &str) -> Result<Dri
     list_drive_folder_at(session, folder_id, DRIVE_XHR_ENDPOINT).await
 }
 
-async fn list_drive_folder_at(
-    session: &Session,
-    folder_id: &str,
-    endpoint: &str,
-) -> Result<DriveFolderListing> {
+async fn list_drive_folder_at(session: &Session, folder_id: &str, endpoint: &str) -> Result<DriveFolderListing> {
     validate_drive_id(folder_id)?;
     if !is_logged_in_google(session).await? {
         return Err(ImoocsError::Auth {
@@ -701,7 +697,10 @@ mod tests {
     fn classify_xhr_error_permission_denied_maps_to_auth() {
         let body = r#"{"error":{"code":403,"message":"The caller does not have permission"}}"#;
         let err = classify_xhr_error(StatusCode::FORBIDDEN, body, "test folder");
-        assert!(matches!(err, ImoocsError::Auth { .. }), "expected Auth error, got {err:?}");
+        assert!(
+            matches!(err, ImoocsError::Auth { .. }),
+            "expected Auth error, got {err:?}"
+        );
     }
 
     #[test]

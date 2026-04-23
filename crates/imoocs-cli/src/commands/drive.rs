@@ -136,7 +136,8 @@ fn run_folders(global: &GlobalArgs, paths: &Paths) -> ExitCode {
 
 fn render_folders(report: &Option<CourseDriveFolders>) -> String {
     let Some(cdf) = report else {
-        return "No course-drive-folders.toml registered. Run /imoocs-drive-setup in a MOOCs skill-enabled session.".to_string();
+        return "No course-drive-folders.toml registered. Run /imoocs-drive-setup in a MOOCs skill-enabled session."
+            .to_string();
     };
     let mut out = String::new();
     let _ = writeln!(out, "Drive root: {}", cdf.drive_root_folder_id);

@@ -183,10 +183,7 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
                 if text_mode {
                     eprintln!("  ✓ confirm = {}", mode_str(mode));
                 }
-                steps.push(StepReport::ok(
-                    "confirmMode",
-                    json!({ "confirm": mode_str(mode) }),
-                ));
+                steps.push(StepReport::ok("confirmMode", json!({ "confirm": mode_str(mode) })));
             }
             Err(err) => {
                 if text_mode {
@@ -365,9 +362,7 @@ fn ensure_confirm_mode(text_mode: bool) -> std::result::Result<ConfirmModeOutcom
         "auto    — 信頼: 指示どおり即 force=true で確定 (摩擦なし)",
     ];
     if text_mode {
-        eprintln!(
-            "  提出時の挙動を選んでください (後から config.toml で変更可)\n  ↑↓ で選択 / Enter で決定"
-        );
+        eprintln!("  提出時の挙動を選んでください (後から config.toml で変更可)\n  ↑↓ で選択 / Enter で決定");
     }
     let idx = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("assignment.confirm")
