@@ -178,6 +178,18 @@ pub async fn get_assignment_detail(session: &Session, key: &AssignmentKey, lang:
     )
     .await;
 
+    // NonPublic は 3 endpoint のどれでも独立に返しうるので、他のエラーより先に昇格する。
+    // NetworkRestricted は現状 answers でしか観測されていないため据え置き (後続課題)。
+    if let Err(ImoocsError::NonPublic { endpoint }) = &status {
+        return Err(ImoocsError::NonPublic { endpoint: endpoint.clone() });
+    }
+    if let Err(ImoocsError::NonPublic { endpoint }) = &html {
+        return Err(ImoocsError::NonPublic { endpoint: endpoint.clone() });
+    }
+    if let Err(ImoocsError::NonPublic { endpoint }) = &answers {
+        return Err(ImoocsError::NonPublic { endpoint: endpoint.clone() });
+    }
+
     let status = status?;
     let html = html?;
     let answers = match answers {
