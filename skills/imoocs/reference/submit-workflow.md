@@ -55,7 +55,7 @@ envelope の `data.fields[]` を読み、以下を把握する:
 提出フォームの `fields[]` に `type: "file"` + `pid: "html"` (あるいは問題文に "html" と明記) があれば html が要る。以下のどちらか:
 
 ```sh
- nbconvert --to html <path>.ipynb
+jupyter nbconvert --to html <path>.ipynb
 # 実行結果を残したいとき:
 jupyter nbconvert --to html --execute <path>.ipynb
 ```
