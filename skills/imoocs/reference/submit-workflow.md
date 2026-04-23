@@ -138,7 +138,8 @@ imoocs assignment list <courseId> --status pending
 | 症状 | 対処 |
 |---|---|
 | `exit 2` / `AUTH_EXPIRED` | `imoocs auth login` を案内 / 実行して再試行 |
-| `exit 3` / `VALIDATION_ERROR` | `error.hint` を読む。初回セットアップが未了なら `imoocs setup` を案内。`--data` の JSON 不備なら `assignment show` で `fields[*].pid` を再確認 |
+| `exit 3` / `VALIDATION_ERROR` (confirm モード) | `assignment.confirm = "confirm"` 設定下で `submit` / `upload --force` が非 TTY (agent / パイプ) から呼ばれた、あるいは TTY で `n` が押された。**API は呼ばれていないのでサーバ状態は変わっていない**。ユーザにその旨を伝え、TTY から再実行してもらうか `confirm = "auto"` への切替を提案する |
+| `exit 3` / `VALIDATION_ERROR` (その他) | `error.hint` を読む。初回セットアップが未了なら `imoocs setup` を案内。`--data` の JSON 不備なら `assignment show` で `fields[*].pid` を再確認 |
 | `exit 4` / `NOT_FOUND` | URL / problemId を再確認。`course show` → `lesson show` で辿り直す |
 | `exit 7` / `NETWORK_RESTRICTED` | 出席確認など学内限定の課題のみ。学内 / VPN で再実行を案内 |
 | `submitted: false` が返る | 下書きに保存されただけ。envelope と stderr の notice をそのままユーザに伝え、どうするか判断を仰ぐ |

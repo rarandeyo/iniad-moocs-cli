@@ -12,7 +12,7 @@ The following modules are ports/adaptations of code from moocs-collect:
 - `crates/imoocs-core/src/auth/moocs.rs` — based on `src/repository/auth.rs:80-99`
 - `crates/imoocs-core/src/auth/google.rs` — based on `src/repository/auth.rs:101-185`
 - `crates/imoocs-core/src/scrape/courses.rs` — based on `src/repository/course.rs:48-64`
-- `crates/imoocs-core/src/scrape/pages.rs` — based on `src/repository/page.rs:53-80`
+- `crates/imoocs-core/src/scrape/pages.rs` — based on `src/repository/page.rs:53-100`
 - `crates/imoocs-core/src/api/slides.rs` — based on `src/repository/slide.rs:56-113`
 - `crates/imoocs-core/src/util/html.rs` — based on `src/utils.rs:4-22`
 

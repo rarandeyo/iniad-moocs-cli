@@ -1,41 +1,49 @@
 # iniad-moocs-cli (`imoocs`)
 
-Unofficial CLI for [INIAD MOOCs](https://moocs.iniad.org/), designed to be driven by AI agents (Claude Code etc.).
+AI agent (Claude Code など) から使うことを前提に作った [INIAD MOOCs](https://moocs.iniad.org/) の**非公式** CLI。
+実装は**お察し**のため、**自己責任**でお使いください。
 
 ## Quick start
 
-```sh
-cargo install --git https://github.com/rarandeyo/iniad-moocs-cli imoocs-cli
-imoocs setup                            # MOOCs login → Google SSO → doctor
-gh skill preview rarandeyo/iniad-moocs-cli imoocs
-```
+1. **CLI をインストール**
+   ```sh
+   cargo install --git https://github.com/rarandeyo/iniad-moocs-cli imoocs-cli
+   ```
 
-`imoocs setup` は対話で INIAD username / password を聞き、成功すれば
-`~/.config/imoocs/config.toml` (username) と OS keyring (password) と
-`~/.cache/imoocs/cookies.json` を整える。さらに [3/4] で **提出モード**
-(`assignment.confirm`) を選ばせる Select が出る — `confirm` (AI agent では
-確定されない安全側) / `auto` (即確定) のどちらか。スライド/Drive が不要なら
-`imoocs setup --skip-google`。CI 向けには
-`echo "$PW" | imoocs setup -u <user> --password-stdin --skip-google`。
+2. **MOOCs / Google SSO にログイン**
+   ```sh
+   imoocs setup
+   ```
+   INIAD の username/password を対話で入力すると、以降 `imoocs` が自動でログイン状態を保つ (password は OS のキーチェーンに保存)。
+　　　途中で提出モードを `confirm` (安全側で下書き保存) / `auto` (即確定) から選ぶ。
 
-### 提出モードと `--force` の意味
+3. **2つのAgent skillをinstall**
+   ```sh
+   gh skill install rarandeyo/iniad-moocs-cli imoocs
+   ```
 
-`assignment submit` と `assignment upload --force` は「確定を希望する」
-意思表示で、実際にサーバに送る `force` は config で決まる:
+   ```sh
+   gh skill install rarandeyo/iniad-moocs-cli imoocs-drive-setup
+   ```
+
+4. **履修コースと Drive フォルダを紐付け**
+   ```
+   /imoocs-drive-setup
+   ```
+   Agent 上でこの slash command を実行すると、履修中のコースごとに授業資料のDrive フォルダを対話で登録する 
+(保存先:`$XDG_CONFIG_HOME/imoocs/course-drive-folders.toml`)。
 
 ```toml
 [assignment]
 confirm = "auto"     # "auto" | "confirm"
 ```
 
-| mode | submit / upload --force の挙動 |
+| mode | 提出時の挙動 |
 |---|---|
-| 未設定 | exit 3 (`imoocs setup` で選ぶか config を直接編集) |
-| `auto` | 常に `force=true` (AI agent を信頼) |
-| `confirm` | TTY で `y` を押したときだけ `force=true`。非 TTY 経路は常に `force=false` (下書き保存) |
+| 未設定 | エラーで停止 (`imoocs setup` で選ぶか config を直接編集してください) |
+| `auto` | 即**確定** (AI agent に提出を任せる) |
+| `confirm` | TTY で `y` を押したときだけ**確定**。それ以外は**中断** |
 
-以前の `-y`/`--yes` フラグは廃止しました。同等の挙動が欲しい場合は
-`confirm = "auto"` を設定してください。
 
 ## Commands
 
@@ -58,19 +66,7 @@ All commands output a stable JSON envelope:
 { "success": false, "error": { "code": "...", "message": "...", "hint": "..." } }
 ```
 
-Exit code: 0 / 1 API / 2 Auth / 3 Validation / 4 NotFound / 5 Internal / 6 Network / 7 NetworkRestricted.
-
-## Agent Skill
-
-配信は [GitHub CLI の `gh skill`](https://cli.github.com/manual/gh_skill_install)
-(v2.90+) を公式経路とする。Agent Skills は agentskills.io の open standard 化に
-伴い Claude Code / Cursor / GitHub Copilot / Codex / Gemini CLI / Antigravity
-が**同一の `SKILL.md` を共有**するので、1 回 install すれば各 agent から
-読まれる。
-
-```sh
-gh skill install rarandeyo/iniad-moocs-cli　imoocs
-```
+Exit code: 0 / 1 API / 2 Auth / 3 Validation / 4 NotFound / 5 Internal / 6 Network / 7 NetworkRestricted / 8 NonPublic.
 
 ## Docs
 

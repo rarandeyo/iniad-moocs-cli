@@ -29,7 +29,7 @@ impl DestructiveAction<'_> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForceDecision {
     Force,
-    Draft,
+    Cancelled,
     ConfigMissing,
 }
 
@@ -43,18 +43,19 @@ pub fn decide_force(mode: Option<ConfirmMode>, is_tty: bool, prompt_answer: Opti
             if is_tty {
                 match prompt_answer {
                     Some(true) => ForceDecision::Force,
-                    _ => ForceDecision::Draft,
+                    _ => ForceDecision::Cancelled,
                 }
             } else {
-                ForceDecision::Draft
+                ForceDecision::Cancelled
             }
         }
     }
 }
 
 /// Runs the prompt where needed and returns the effective `force` flag.
-/// Emits a stderr notice when `confirm` downgrades a destructive call to a
-/// draft save, so operators understand why the server state didn't change.
+/// Returns a Validation error without calling the API when the user declines
+/// the confirmation prompt or when running non-interactively under
+/// `confirm` mode — the server is left untouched.
 pub fn resolve_force(cfg: &Config, action: &DestructiveAction) -> Result<bool, ImoocsError> {
     let mode = cfg.assignment.as_ref().and_then(|a| a.confirm);
     let is_tty = std::io::stdin().is_terminal();
@@ -72,13 +73,14 @@ pub fn resolve_force(cfg: &Config, action: &DestructiveAction) -> Result<bool, I
 
     match decide_force(mode, is_tty, prompt_answer) {
         ForceDecision::Force => Ok(true),
-        ForceDecision::Draft => {
-            if is_tty {
-                eprintln!("[imoocs] declined; saved as draft (force=false).");
+        ForceDecision::Cancelled => {
+            let msg = if is_tty {
+                "Confirmation declined. Nothing was sent to the server."
             } else {
-                eprintln!("[imoocs] non-interactive: saved as draft (force=false). Run from a TTY to finalise.");
-            }
-            Ok(false)
+                "Confirmation required but running non-interactively. Run from a TTY, \
+                 or set `assignment.confirm = \"auto\"` in config.toml to let agents finalise."
+            };
+            Err(ImoocsError::Validation(msg.into()))
         }
         ForceDecision::ConfigMissing => Err(ImoocsError::Validation(
             "config `assignment.confirm` is not set. Run `imoocs setup`, or add \
@@ -118,27 +120,27 @@ mod tests {
     }
 
     #[test]
-    fn confirm_tty_no_drafts() {
+    fn confirm_tty_no_cancels() {
         assert_eq!(
             decide_force(Some(ConfirmMode::Confirm), true, Some(false)),
-            ForceDecision::Draft
+            ForceDecision::Cancelled
         );
         assert_eq!(
             decide_force(Some(ConfirmMode::Confirm), true, None),
-            ForceDecision::Draft,
-            "missing prompt answer on TTY also drafts"
+            ForceDecision::Cancelled,
+            "missing prompt answer on TTY also cancels"
         );
     }
 
     #[test]
-    fn confirm_non_tty_drafts() {
+    fn confirm_non_tty_cancels() {
         assert_eq!(
             decide_force(Some(ConfirmMode::Confirm), false, None),
-            ForceDecision::Draft
+            ForceDecision::Cancelled
         );
         assert_eq!(
             decide_force(Some(ConfirmMode::Confirm), false, Some(true)),
-            ForceDecision::Draft,
+            ForceDecision::Cancelled,
             "non-TTY never promotes, regardless of answer (agent protection)"
         );
     }
