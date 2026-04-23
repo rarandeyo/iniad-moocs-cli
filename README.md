@@ -36,9 +36,13 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
    ```sh
    imoocs setup
    ```
-   INIAD の username/password を対話で入力すると、以降 `imoocs` が自動でログイン状態を保つ (password は OS のキーチェーンに保存)。
-   途中で提出モードを `confirm` (TTY で `y` 確認・それ以外は中断) / `auto` (即確定) から選ぶ。詳細は [Config](#config) 参照。
-   shell 補完の自動配置もここで聞かれる (`--install-completion` で即実行 / `imoocs completion install` で後からでも可)。
+   以下の 5 step が順に走る:
+
+   1. **INIAD MOOCs ログイン** — username / password を対話入力 (password は OS のキーチェーンに保存)
+   2. **Google SSO セッション取得** — 自動
+   3. **提出モード** (`assignment.confirm`) — `confirm` (TTY で `y` 確認・それ以外は中断) / `auto` (即確定) の 2 択。詳細は [Config](#config)
+   4. **shell 補完の自動配置** — XDG 標準パスに配置するか確認
+   5. **最終診断** — `doctor` で認証状態を検証して完了
 
 3. **2つのAgent skillをinstall**
    ```sh

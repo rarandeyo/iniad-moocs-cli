@@ -50,7 +50,29 @@ pub struct SetupReport {
     pub steps: Vec<StepReport>,
     pub all_ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub skill_install_hint: Option<SkillInstallHint>,
+    pub next_steps: Option<NextSteps>,
+}
+
+/// README の Quick start 後半 (skill 導入 → Drive フォルダ紐付け) を
+/// agent が機械可読な形で拾えるようにまとめたもの。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NextSteps {
+    pub skill_installs: Vec<SkillInstallHint>,
+    pub drive_setup_command: String,
+}
+
+impl NextSteps {
+    fn recommended() -> Self {
+        let repo = "rarandeyo/iniad-moocs-cli";
+        Self {
+            skill_installs: vec![
+                SkillInstallHint::new(repo, "imoocs"),
+                SkillInstallHint::new(repo, "imoocs-drive-setup"),
+            ],
+            drive_setup_command: "/imoocs-drive-setup".into(),
+        }
+    }
 }
 
 /// `gh skill install` への誘導。`--agent` / `--scope` は指定せず、コマンド側
@@ -64,9 +86,7 @@ pub struct SkillInstallHint {
 }
 
 impl SkillInstallHint {
-    fn recommended() -> Self {
-        let repo = "rarandeyo/iniad-moocs-cli";
-        let skill = "imoocs";
+    fn new(repo: &str, skill: &str) -> Self {
         Self {
             command: format!("gh skill install {repo} {skill}"),
             repo: repo.into(),
@@ -289,15 +309,15 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
     }
 
     let all_ok = failure.is_none();
-    let skill_install_hint = if all_ok {
-        Some(SkillInstallHint::recommended())
+    let next_steps = if all_ok {
+        Some(NextSteps::recommended())
     } else {
         None
     };
     let report = SetupReport {
         steps,
         all_ok,
-        skill_install_hint,
+        next_steps,
     };
 
     if let Some(err) = failure {
@@ -337,15 +357,16 @@ fn render_report(r: &SetupReport) -> String {
         }
     }
     let _ = writeln!(out);
-    if let Some(hint) = &r.skill_install_hint {
-        let _ = writeln!(out, "Setup complete. `imoocs course list` から始められます。");
+    if let Some(next) = &r.next_steps {
+        let _ = writeln!(out, "Setup complete.");
         let _ = writeln!(out);
-        let _ = writeln!(
-            out,
-            "次のステップ: エージェントに skill を導入すると自動化がスムーズです"
-        );
-        let _ = writeln!(out, "  $ {}", hint.command);
-        let _ = write!(out, "  (対話プロンプトで agent / scope を選択できます)");
+        let _ = writeln!(out, "次のステップ (詳細は README の Quick start):");
+        let _ = writeln!(out, "  1. エージェント skill を 2 つ導入");
+        for hint in &next.skill_installs {
+            let _ = writeln!(out, "       $ {}", hint.command);
+        }
+        let _ = writeln!(out, "  2. agent 内で Drive フォルダを紐付け");
+        let _ = write!(out, "       {}", next.drive_setup_command);
     } else {
         let _ = write!(out, "Setup complete. `imoocs course list` から始められます。");
     }
