@@ -15,7 +15,7 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
    imoocs setup
    ```
    INIAD の username/password を対話で入力すると、以降 `imoocs` が自動でログイン状態を保つ (password は OS のキーチェーンに保存)。
-　　　途中で提出モードを `confirm` (安全側で下書き保存) / `auto` (即確定) から選ぶ。
+   途中で提出モードを `confirm` (TTY で `y` 確認・それ以外は中断) / `auto` (即確定) から選ぶ。詳細は [Config](#config) 参照。
 
 3. **2つのAgent skillをinstall**
    ```sh
@@ -33,17 +33,27 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
    Agent 上でこの slash command を実行すると、履修中のコースごとに授業資料のDrive フォルダを対話で登録する 
 (保存先:`$XDG_CONFIG_HOME/imoocs/course-drive-folders.toml`)。
 
+## Config
+
+`$XDG_CONFIG_HOME/imoocs/config.toml` に保存される。`imoocs setup` で一部項目は対話設定されるが、手で編集してもよい。
+
+| key | 値 | デフォルト | 用途 |
+|---|---|---|---|
+| `[slides] out_dir` | `"cache"` / `"tmp"` / 絶対パス | `"tmp"` | `imoocs slide fetch` / `imoocs lesson show --fetch-slides` の PDF 保存先。`"cache"` は `$XDG_CACHE_HOME/imoocs/slides/`、`"tmp"` は `/tmp/imoocs/slides/` (OS が自動クリーンアップ)。 |
+| `[assignment] confirm` | `"auto"` / `"confirm"` | 未設定 (エラー) | `imoocs assignment submit` / `imoocs assignment upload --force` の確定挙動。下表参照。 |
+
+### `[assignment] confirm` の挙動
+
+
+例:
+
 ```toml
+[slides]
+out_dir = "cache"
+
 [assignment]
-confirm = "auto"     # "auto" | "confirm"
+confirm = "auto"
 ```
-
-| mode | 提出時の挙動 |
-|---|---|
-| 未設定 | エラーで停止 (`imoocs setup` で選ぶか config を直接編集してください) |
-| `auto` | 即**確定** (AI agent に提出を任せる) |
-| `confirm` | TTY で `y` を押したときだけ**確定**。それ以外は**中断** |
-
 
 ## Commands
 

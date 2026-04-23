@@ -14,8 +14,6 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub year: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slides: Option<SlidesConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignment: Option<AssignmentConfig>,
