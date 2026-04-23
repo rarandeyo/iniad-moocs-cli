@@ -358,7 +358,9 @@ fn render_report(r: &SetupReport) -> String {
             let _ = writeln!(out, "       $ {}", hint.command);
         }
         let _ = writeln!(out, "  2. agent 内で Drive フォルダを紐付け");
-        let _ = write!(out, "       {}", next.drive_setup_command);
+        let _ = writeln!(out, "       {}", next.drive_setup_command);
+        let _ = writeln!(out, "  3. 完了後 `imoocs doctor` を再実行して全項目 ✓ を確認");
+        let _ = write!(out, "       $ imoocs doctor");
     } else {
         let _ = write!(out, "Setup complete. `imoocs course list` から始められます。");
     }

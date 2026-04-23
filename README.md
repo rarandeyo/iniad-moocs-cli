@@ -1,7 +1,8 @@
 # iniad-moocs-cli (`imoocs`)
 
-AI agent (Claude Code など) から使うことを前提に作った [INIAD MOOCs](https://moocs.iniad.org/) の**非公式** CLI。
-実装は**お察し**のため、**自己責任**でお使いください。
+ターミナルや AI agent から使うことを想定した [INIAD MOOCs](https://moocs.iniad.org/) の**非公式** CLI。
+コース・レッスン・課題情報・スライド・Drive 配布物の閲覧、取得、整理を支援する。
+`imoocs assignment submit` / `upload` による提出操作もできるが、提出物の内容、提出判断、提出操作、および関連規約の順守は利用者の責任。
 
 ## Quick start
 
@@ -61,6 +62,14 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
 (保存先:`$XDG_CONFIG_HOME/imoocs/course-drive-folders.toml`)。root は Drive 上の
 `[受講生]講義資料` フォルダ名から自動発見する。
 
+5. **仕上げ: 完了確認**
+   ```sh
+   imoocs doctor
+   ```
+   認証・設定・completion・skill・Drive フォルダを一括検査する。最後の行が
+   `Quick start: ✓ 全項目クリア` になれば Quick start 完了。⚠ が残っていれば該当 step に戻る。
+   JSON envelope の `quickStartComplete: true` も同じ判定に使える。
+
 ## Config
 
 `$XDG_CONFIG_HOME/imoocs/config.toml` に保存される。`imoocs setup` で一部項目は対話設定されるが、手で編集してもよい。
@@ -77,7 +86,7 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
 | mode | 提出時の挙動 |
 |---|---|
 | 未設定 | Validation エラーで停止 (`imoocs setup` で選ぶか config を直接編集してください) |
-| `auto` | 即**確定** (AI agent に提出を任せる) |
+| `auto` | 確認なしで即**確定** |
 | `confirm` | TTY で `y` を押したときだけ**確定**。それ以外 (拒否 / 非対話 / EOF) は API を呼ばずに中断しサーバ状態は変化しない |
 
 例:
@@ -131,8 +140,8 @@ Linux でビルド時に `dbus-1` が見つからないエラーが出たら `li
 
 ## Docs
 
-- [skills/imoocs/SKILL.md](./skills/imoocs/SKILL.md) — agent 向け判断フロー。
-- [skills/imoocs/reference/submit-workflow.md](./skills/imoocs/reference/submit-workflow.md) — 課題提出チェックリスト。
+- [skills/imoocs/SKILL.md](./skills/imoocs/SKILL.md) — agent 向け判断フロー。閲覧・取得・整理を主軸にし、書き込みは明示指示が前提。
+- [skills/imoocs/reference/submit-workflow.md](./skills/imoocs/reference/submit-workflow.md) — 課題提出チェックリスト。提出物の内容と提出操作の責任は利用者にある。
 - [skills/imoocs/reference/troubleshooting.md](./skills/imoocs/reference/troubleshooting.md) — exit code / 認証切れ対処。
 - [skills/imoocs/reference/schema.md](./skills/imoocs/reference/schema.md) — envelope + ドメイン型サンプル。
 
