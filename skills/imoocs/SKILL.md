@@ -23,7 +23,7 @@ URL や明示的な MOOCs の単語がなくても、履修 / 課題 / 出席 / 
 1. **ブラウザや Playwright を開かない**。前身 MCP (playwright-mcp ベース) とは違い、この CLI は URL 1 本受け取れば内部でスクレイプ / ログイン / PDF 合成まで完結する。agent が DOM を触る必要はない。
 2. **`imoocs open <url>` を起点に据える**。URL を渡されたら、パスを手で parse せず `imoocs open <url>` に投げる。返ってきた envelope の `data.type` (`courses` / `course` / `lesson` / `assignment`) で次の一手を決める。
 3. **text 出力は人間向け、JSON envelope は agent 向け**。`course` / `lesson` / `assignment` / `slide` / `drive` / `open` は常に JSON。`auth *` は text 専用で exit code で分岐。`doctor` / `setup` は text がデフォルトなので、機械的に処理したいなら `--format json` を付ける。
-4. **確定判定は envelope の `submitted` フィールドで行う**。`imoocs assignment submit` が返る envelope に `submitted: true` が載って初めて確定成功。`submitted: false` は「下書きには積まれたが確定されていない」という意味なので、この状態で「提出しました」とユーザに報告してはいけない — 未確定である旨を伝えて判断を仰ぐ。
+4. **CLI は常に「確定」を意図する**。`imoocs assignment submit` / `upload` は成功したら必ず確定（`force=true`）済み。サーバ側の下書きだけ残す verb は無い。`assignment.confirm = "confirm"` かつ非 TTY / 人間が `n` を押した場合は **API を呼ばずに exit 3 (`VALIDATION_ERROR`) で停止** する（サーバ状態は変化しない）。成功時 envelope の `submitted` は常に `true` になる — `false` が返ることは構造上ない。
 5. **exit code で分岐**。envelope の `success` も見るが、以下の exit code だけでも大半の分岐が付く:
 
    | code | 意味 | agent の反応 |
@@ -99,12 +99,17 @@ MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返
    - 全セルに実行結果があるか確認。無ければ再実行 (前身 MCP の実運用知)。
    - フォームが html を要求していたら `jupyter nbconvert --to html <path>.ipynb` を agent が実行し、成果物を upload に渡す。
    - 課題文 (markdown) と ipynb の実装 / 出力が整合しているか確認。ズレていたら修正 → 再実行 → 再確認。
-4. **下書き保存**: まず `imoocs assignment answer <courseId> <problemId> --data '<json>'` で draft に積む。`--data` は `@path` / `-` (stdin) も使える。`ok: true, submitted: false` が返れば draft 成功。
-5. **ファイル添付**: `imoocs assignment upload <courseId> <problemId> --pid <pid> <path>`。`--force` なし = 下書きに保存するだけ。
-6. **確定**: ユーザに明示的に「提出して」と言われたら `imoocs assignment submit`。返ってきた envelope の `submitted` フィールドを確認する — `true` なら確定成功、`false` なら「下書きには積まれたが確定されていない」状態なので、その旨をユーザに報告して判断を仰ぐ (勝手に再試行したり「提出しました」と言ったりしない)。stderr に notice が出ている場合はそれも併せて伝える。
-7. **成否確認**: 確定が成功したら `imoocs assignment show` を再度叩き、`status` と `fields[*].currentValue` が埋まっていることを確認してからユーザに報告する。
-8. **棚卸し**: 今回の課題以外にも同じコースに pending があれば `imoocs assignment list <courseId> --status pending` で一覧にして報告する (前身 MCP の「未提出課題レポート」の習慣)。
-9. **書き込みの実施状況を明示する**: 最終応答では「`answer` / `upload` / `submit` のうちどれを叩いたか / 叩いていないか」を必ず1行で伝える。read-only だけで終えた確認タスクなら「下書きもまだ空です。書き込み系は一切叩いていません」等、ユーザが現在の MOOCs 側の状態を誤解しないよう明示する。
+4. **提出データをローカルで組み立てる**: テキスト / radio / checkbox 系は `{pid: value}` の JSON を一旦ローカルファイル (例: `/tmp/draft.json`) に書く。MOOCs サーバには下書きを積まない方針なので、レビュー用の中間物はローカルに置いてユーザに内容を見せる。
+5. **ユーザ確認を取ってから確定**: 明示的に「提出して」と言われるまで `submit` / `upload` は叩かない。内容に同意を得たら:
+   ```sh
+   imoocs assignment submit <courseId> <problemId> --data @/tmp/draft.json
+   ```
+   `--data` は inline JSON `'{"p1": "..."}'` / `@path` / `-` (stdin) の 3 形式。
+6. **ファイル添付の確定**: `imoocs assignment upload <courseId> <problemId> --pid <pid> <path>`。`--force` フラグは無い — このコマンドは**常に確定**する。
+7. **`confirm` モードのゲート**: `assignment.confirm = "confirm"` 設定下で agent (非 TTY) から `submit` / `upload` を叩くと exit 3 (`VALIDATION_ERROR`) で停止し、サーバ側は無変化。`error.hint` をユーザにそのまま伝え、「TTY から再実行」か「`assignment.confirm = "auto"` への切替」を提案する。勝手にリトライしない。
+8. **成否確認**: 確定成功（exit 0）したら `imoocs assignment show` を再度叩き、`status` と `fields[*].currentValue` / `uploadedFile` が埋まっていることを確認してからユーザに報告する。
+9. **棚卸し**: 今回の課題以外にも同じコースに pending があれば `imoocs assignment list <courseId> --status pending` で一覧にして報告する (前身 MCP の「未提出課題レポート」の習慣)。
+10. **書き込みの実施状況を明示する**: 最終応答では「`submit` / `upload` を叩いたか / 叩いていないか」を必ず 1 行で伝える。read-only だけで終えた確認タスクなら「書き込み系は一切叩いていません」と明示する。
 
 ### C. レッスン閲覧 / スライド PDF
 
@@ -122,7 +127,7 @@ MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返
 ## 落とし穴 (必ず守ること)
 
 - **`NETWORK_RESTRICTED` (exit 7) は出席確認など一部のみ**。学外でこのエラーが出たら「学内 IP から再実行してください」とユーザに伝え、該当課題以外は普通に進める。全コースが学内限定ではない。
-- **`submit` の結果は envelope の `submitted` で判定**。`true` だけが確定成功。`false` なら下書き止まりなので、ユーザに事実を伝えて判断を仰ぐ。勝手に「提出しました」と報告しない。
+- **`submit` / `upload` の成否は exit code で判定**。exit 0 = 確定成功。exit 3 (`VALIDATION_ERROR`) は `confirm` モードのゲートで止まった (サーバ未送信)、引数不備、初回セットアップ未了などの可能性がある。`error.hint` を読んで分岐し、勝手にリトライしたり「提出しました」と要約したりしない。成功時 envelope の `submitted` は常に `true`。
 - **`imoocs auth *` は `--format json` が効かない**。text 出力と exit code で分岐する設計なので、パースを試みない。
 - **スライド PDF は `/tmp` が既定**。永続キャッシュではない。「さっきの PDF をもう一度」のときは `--no-cache` 付きで再取得するか、config を `cache` に変えてもらう。
 

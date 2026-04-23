@@ -94,11 +94,16 @@
 }
 ```
 
-### AnswerResult (`answer` / `submit`)
+### AnswerResult (`submit`)
 ```json
 { "ok": true, "status": "open",
-  "submitted": false, "savedAt": "2026-04-20T00:00:00Z" }
+  "submitted": true, "savedAt": "2026-04-20T00:00:00Z" }
 ```
+
+`submit` が exit 0 で返ったときの envelope。`submitted` は常に `true`
+(CLI は確定のみを扱うため)。`confirm` モードで人間が拒否した場合や
+非 TTY で止まった場合は exit 3 / `VALIDATION_ERROR` で中断し、この
+envelope は返らない。
 
 ### OpenResult (`imoocs open`)
 tag-based enum with `type`:

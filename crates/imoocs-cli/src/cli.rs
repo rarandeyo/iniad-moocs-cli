@@ -72,7 +72,9 @@ pub enum Command {
         #[command(subcommand)]
         cmd: commands::lesson::LessonCommand,
     },
-    /// 課題関連のサブコマンド (list / show / answer / submit / upload)。
+    /// 課題関連のサブコマンド (list / show / submit / upload)。
+    /// `submit` / `upload` は常に確定を意図する (ゲートの強さは
+    /// `assignment.confirm` config で切替)。
     #[command(visible_alias = "a")]
     Assignment {
         #[command(subcommand)]

@@ -35,11 +35,11 @@ pub struct AssignmentConfig {
     pub confirm: Option<ConfirmMode>,
 }
 
-/// `assignment submit` / `assignment upload --force` の確定挙動を制御する。
+/// `assignment submit` / `assignment upload` の確定挙動を制御する。
 /// `Auto` は無条件に `force=true` を送る。`Confirm` は対話プロンプトで人間が
 /// `y` と答えた場合のみ `force=true` を送る。ユーザが拒否する、または
 /// 非対話で実行された場合、CLI は API を呼ばずに Validation エラーで中断する
-/// (draft 保存はされない)。
+/// (サーバ側下書きも残らない)。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConfirmMode {

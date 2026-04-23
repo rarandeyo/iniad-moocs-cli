@@ -79,29 +79,22 @@ pub enum AssignmentCommand {
         #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
         url: Option<String>,
     },
-    /// 答案を下書き保存する (確定はしない)。JSON `{pid: value}` を受け付ける。
-    Answer {
-        #[arg(required_unless_present = "url")]
-        course_id: Option<String>,
-        #[arg(required_unless_present = "url")]
-        problem_id: Option<String>,
-        #[arg(long)]
-        data: String,
-        #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
-        url: Option<String>,
-    },
     /// 提出を確定する (PUT /answers with `force=true`)。
+    /// `assignment.confirm` の設定で TTY プロンプト / 即確定を切替える。
     Submit {
         #[arg(required_unless_present = "url")]
         course_id: Option<String>,
         #[arg(required_unless_present = "url")]
         problem_id: Option<String>,
+        /// 提出する答案。JSON `{pid: value}` / `@path` / `-` (stdin) を受け付ける。
         #[arg(long)]
-        data: Option<String>,
+        data: String,
         #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
         url: Option<String>,
     },
-    /// 指定 pid にファイル形式の答案を upload する。
+    /// 指定 pid にファイル形式の答案を upload して確定する
+    /// (`POST /file/<pid>?force=true`)。`assignment.confirm` の設定で
+    /// TTY プロンプト / 即確定を切替える。
     Upload {
         #[arg(required_unless_present = "url")]
         course_id: Option<String>,
@@ -116,8 +109,6 @@ pub enum AssignmentCommand {
         /// 未指定で `--url` もない場合は runtime で検査する。
         #[arg(required_unless_present = "url")]
         file: Option<PathBuf>,
-        #[arg(long)]
-        force: bool,
         #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
         url: Option<String>,
     },
@@ -170,7 +161,7 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
                 Err(e) => Ok(emit_err(e)),
             }
         }
-        AssignmentCommand::Answer {
+        AssignmentCommand::Submit {
             course_id,
             problem_id,
             data,
@@ -183,31 +174,6 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             let parsed = match parse_data(&data) {
                 Ok(p) => p,
                 Err(e) => return Ok(emit_err(e)),
-            };
-            match api::put_answers(&session, &key, parsed, false).await {
-                Ok(v) => {
-                    output::emit_success(v, global.format);
-                    Ok(ExitCode::from(0))
-                }
-                Err(e) => Ok(emit_err(e)),
-            }
-        }
-        AssignmentCommand::Submit {
-            course_id,
-            problem_id,
-            data,
-            url,
-        } => {
-            let key = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
-                Ok(k) => k,
-                Err(e) => return Ok(emit_err(e)),
-            };
-            let parsed = match data {
-                Some(raw) => match parse_data(&raw) {
-                    Ok(p) => p,
-                    Err(e) => return Ok(emit_err(e)),
-                },
-                None => HashMap::new(),
             };
             let cfg = match Config::load(&session.paths.config_file()) {
                 Ok(c) => c,
@@ -236,7 +202,6 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             problem_id,
             pid,
             file,
-            force,
             url,
         } => {
             let file = match file {
@@ -251,25 +216,18 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
                 Ok(k) => k,
                 Err(e) => return Ok(emit_err(e)),
             };
-            let effective_force = if force {
-                let cfg = match Config::load(&session.paths.config_file()) {
-                    Ok(c) => c,
-                    Err(e) => return Ok(emit_err(e)),
-                };
-                let filename = file.file_name().and_then(|s| s.to_str()).unwrap_or("file");
-                match confirm::resolve_force(&cfg, &DestructiveAction::UploadForce { pid: &pid, filename }) {
-                    Ok(f) => f,
-                    Err(e) => return Ok(emit_err(e)),
-                }
-            } else {
-                false
+            let cfg = match Config::load(&session.paths.config_file()) {
+                Ok(c) => c,
+                Err(e) => return Ok(emit_err(e)),
             };
-            match api::post_file(&session, &key, &pid, &file, effective_force).await {
+            let filename = file.file_name().and_then(|s| s.to_str()).unwrap_or("file");
+            let force = match confirm::resolve_force(&cfg, &DestructiveAction::UploadForce { pid: &pid, filename }) {
+                Ok(f) => f,
+                Err(e) => return Ok(emit_err(e)),
+            };
+            match api::post_file(&session, &key, &pid, &file, force).await {
                 Ok(()) => {
-                    output::emit_success(
-                        json!({ "ok": true, "pid": pid, "finalised": effective_force }),
-                        global.format,
-                    );
+                    output::emit_success(json!({ "ok": true, "pid": pid, "finalised": force }), global.format);
                     Ok(ExitCode::from(0))
                 }
                 Err(e) => Ok(emit_err(e)),

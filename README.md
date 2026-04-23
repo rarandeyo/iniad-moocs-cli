@@ -67,15 +67,17 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
 | key | 値 | デフォルト | 用途 |
 |---|---|---|---|
 | `[slides] out_dir` | `"cache"` / `"tmp"` / 絶対パス | `"tmp"` | `imoocs slide fetch` / `imoocs lesson show --fetch-slides` の PDF 保存先。`"cache"` は `$XDG_CACHE_HOME/imoocs/slides/`、`"tmp"` は `/tmp/imoocs/slides/` (OS が自動クリーンアップ)。 |
-| `[assignment] confirm` | `"auto"` / `"confirm"` | 未設定 (エラー) | `imoocs assignment submit` / `imoocs assignment upload --force` の確定挙動。下表参照。 |
+| `[assignment] confirm` | `"auto"` / `"confirm"` | 未設定 (エラー) | `imoocs assignment submit` / `imoocs assignment upload` の確定挙動。下表参照。 |
 
 ### `[assignment] confirm` の挙動
+
+`submit` / `upload` は常に「確定」を意図するコマンドで、下書き保存専用の verb は存在しない。`assignment.confirm` でゲートの強さを切り替える:
 
 | mode | 提出時の挙動 |
 |---|---|
 | 未設定 | Validation エラーで停止 (`imoocs setup` で選ぶか config を直接編集してください) |
 | `auto` | 即**確定** (AI agent に提出を任せる) |
-| `confirm` | TTY で `y` を押したときだけ**確定**。それ以外 (拒否 / 非対話 / EOF) は draft 保存せず中断 |
+| `confirm` | TTY で `y` を押したときだけ**確定**。それ以外 (拒否 / 非対話 / EOF) は API を呼ばずに中断しサーバ状態は変化しない |
 
 例:
 
@@ -95,7 +97,7 @@ imoocs auth {login,login-google,logout,status,export}
 imoocs course {list,show}
 imoocs lesson show <courseId> <lessonId> [--page <p>] [--fetch-slides] [--with-assignments]
 imoocs slide fetch <embedUrl>
-imoocs assignment {list,show,answer,submit,upload}  # --url <url>, --lesson, --status 対応
+imoocs assignment {list,show,submit,upload}         # --url <url>, --lesson, --status 対応 (submit/upload は常に確定)
 imoocs drive {list,fetch,folders}                   # list/fetch は SAML cookie で Drive、folders は course-drive-folders.toml を表示
 imoocs open <url>                                   # URL 1 本でルーティング
 imoocs completion {generate,install}                # generate=stdout / install=XDG 標準パスに配置

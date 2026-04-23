@@ -25,7 +25,7 @@ imoocs assignment show <courseId> <problemId>
 envelope の `data.fields[]` を読み、以下を把握する:
 
 - 各 pid がどの型か (`textarea` / `text` / `radio` / `checkbox` / `file`)
-- 既に `currentValue` / `uploadedFile` が埋まっている pid があるか (draft 状態)
+- 既に `currentValue` / `uploadedFile` が埋まっている pid があるか (過去の確定提出 or Web UI で残した下書き)
 - `lang` (ja/en) と、問題文 / 指示が何を要求しているか
 
 `markdown` (レッスン側の `lesson show`) にノートブックテンプレートやサンプルコードへのリンクが載っていることがあるので、そちらも併読する。
@@ -62,12 +62,33 @@ jupyter nbconvert --to html --execute <path>.ipynb
 
 生成された `<path>.html` を upload の対象にする。
 
-## 3. 下書き保存 (draft)
+## 3. 提出データをローカル JSON で組み立てる
 
-テキスト / ラジオ / チェックボックス系は `answer` で下書きに積む:
+CLI にはサーバ下書きを積む verb は無い。テキスト / ラジオ / チェックボックス系の答えは `{pid: value}` マップをローカルファイルに書いてユーザに内容を見せる:
 
 ```sh
-imoocs assignment answer <courseId> <problemId> --data @/tmp/draft.json
+# 例: /tmp/draft.json
+{
+  "p1": "answer text",
+  "p2": "choice-a",
+  "p3": ["value1", "value2"]
+}
+```
+
+値の組み立て方:
+
+- `textarea` / `text` → 文字列
+- `radio` → `options[*].value` のいずれか
+- `checkbox` → `options[*].value` を含む配列
+
+この段階では MOOCs サーバに何も送らない。agent は JSON の中身をユーザに提示し、「これで提出して良いか」を確認する。
+
+## 4. 確定提出 (テキスト系)
+
+ユーザが明示的に「出して」「提出して」と言ったときだけ叩く:
+
+```sh
+imoocs assignment submit <courseId> <problemId> --data @/tmp/draft.json
 ```
 
 `--data` は 3 形式:
@@ -76,38 +97,23 @@ imoocs assignment answer <courseId> <problemId> --data @/tmp/draft.json
 - `--data @/path/to/file.json` — ファイル
 - `--data -` — stdin
 
-答えは `{<pid>: <value>}` のマップ。`radio` は `options[*].value`、`checkbox` は `["value1", "value2"]` の配列、`textarea` / `text` は文字列。
+`assignment.confirm` 設定によって挙動が切り替わる:
 
-返り値 `{ok: true, submitted: false, savedAt: "..."}` が出れば draft 成功。`submitted: false` が正常値 (まだ確定していない)。
+- `auto` → 即確定 (force=true を送る)
+- `confirm` + TTY → プロンプトで `y/n`。`y` のみ確定。
+- `confirm` + 非 TTY (agent / パイプ) → **API を呼ばずに exit 3 で停止**。サーバ状態は変化しない。
 
-## 4. ファイルアップロード (draft)
+exit 0 で確定成功。envelope の `submitted` は常に `true` になる。
+
+## 5. 確定提出 (ファイル)
 
 ```sh
 imoocs assignment upload <courseId> <problemId> --pid <pid> <path>
 ```
 
-`--force` を付けなければ確定はしない (draft)。Content-Type は CLI が `mime_guess` で自動設定するので agent は意識しなくて良い。
+このコマンドは**常に確定**する (`--force` フラグは存在しない)。confirm ゲートはテキスト系 `submit` と同じ。Content-Type は CLI が `mime_guess` で自動設定するので agent は意識しなくて良い。
 
 アップロード後に `imoocs assignment show` を再度叩き、`fields[*].uploadedFile` が non-null になっていることを確認する。
-
-## 5. 確定提出
-
-ユーザが明示的に「出して」「提出して」と言ったときだけ:
-
-```sh
-imoocs assignment submit <courseId> <problemId>
-```
-
-あるいはファイルも同時に確定したい場合:
-
-```sh
-imoocs assignment upload <courseId> <problemId> --pid <pid> <path> --force
-```
-
-返ってきた envelope の `submitted` で判定する:
-
-- `submitted: true` → 確定成功。ステップ 6 に進む。
-- `submitted: false` → 下書きには積まれたが確定されていない。ユーザにその旨を伝え、どうするか判断を仰ぐ (勝手に再試行したり「提出しました」と報告したりしない)。stderr に notice が出ていれば内容をそのまま引用する。
 
 ## 6. 事後確認
 
@@ -138,8 +144,7 @@ imoocs assignment list <courseId> --status pending
 | 症状 | 対処 |
 |---|---|
 | `exit 2` / `AUTH_EXPIRED` | `imoocs auth login` を案内 / 実行して再試行 |
-| `exit 3` / `VALIDATION_ERROR` (confirm モード) | `assignment.confirm = "confirm"` 設定下で `submit` / `upload --force` が非 TTY (agent / パイプ) から呼ばれた、あるいは TTY で `n` が押された。**API は呼ばれていないのでサーバ状態は変わっていない**。ユーザにその旨を伝え、TTY から再実行してもらうか `confirm = "auto"` への切替を提案する |
+| `exit 3` / `VALIDATION_ERROR` (confirm モード) | `assignment.confirm = "confirm"` 設定下で `submit` / `upload` が非 TTY (agent / パイプ) から呼ばれた、あるいは TTY で `n` が押された。**API は呼ばれていないのでサーバ状態は変わっていない**。ユーザにその旨を伝え、TTY から再実行してもらうか `confirm = "auto"` への切替を提案する |
 | `exit 3` / `VALIDATION_ERROR` (その他) | `error.hint` を読む。初回セットアップが未了なら `imoocs setup` を案内。`--data` の JSON 不備なら `assignment show` で `fields[*].pid` を再確認 |
 | `exit 4` / `NOT_FOUND` | URL / problemId を再確認。`course show` → `lesson show` で辿り直す |
 | `exit 7` / `NETWORK_RESTRICTED` | 出席確認など学内限定の課題のみ。学内 / VPN で再実行を案内 |
-| `submitted: false` が返る | 下書きに保存されただけ。envelope と stderr の notice をそのままユーザに伝え、どうするか判断を仰ぐ |

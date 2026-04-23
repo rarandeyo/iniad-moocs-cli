@@ -133,10 +133,7 @@ fn print_post_install_notes(outcome: &InstallOutcome) {
     }
 }
 
-pub(crate) fn do_install(
-    shell_arg: Option<ShellArg>,
-    force: bool,
-) -> std::result::Result<InstallOutcome, ImoocsError> {
+pub(crate) fn do_install(shell_arg: Option<ShellArg>, force: bool) -> std::result::Result<InstallOutcome, ImoocsError> {
     let shell = match shell_arg {
         Some(s) => s,
         None => detect_shell_from_env()?,
@@ -179,8 +176,7 @@ pub(crate) fn do_install(
 fn detect_shell_from_env() -> std::result::Result<ShellArg, ImoocsError> {
     let s = std::env::var("SHELL").map_err(|_| {
         ImoocsError::Validation(
-            "cannot detect shell: SHELL environment variable is not set; pass --shell <bash|zsh|fish>"
-                .into(),
+            "cannot detect shell: SHELL environment variable is not set; pass --shell <bash|zsh|fish>".into(),
         )
     })?;
     parse_shell_name(&s).ok_or_else(|| {
@@ -191,10 +187,7 @@ fn detect_shell_from_env() -> std::result::Result<ShellArg, ImoocsError> {
 }
 
 fn parse_shell_name(shell_path: &str) -> Option<ShellArg> {
-    let basename = Path::new(shell_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let basename = Path::new(shell_path).file_name().and_then(|n| n.to_str()).unwrap_or("");
     match basename {
         "bash" => Some(ShellArg::Bash),
         "zsh" => Some(ShellArg::Zsh),

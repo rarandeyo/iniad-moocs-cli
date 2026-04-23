@@ -234,11 +234,7 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
                 Ok(outcome) => {
                     let marker = if outcome.wrote { "wrote" } else { "up to date" };
                     if text_mode {
-                        eprintln!(
-                            "  ✓ {} → {} ({marker})",
-                            outcome.shell.name(),
-                            outcome.path.display()
-                        );
+                        eprintln!("  ✓ {} → {} ({marker})", outcome.shell.name(), outcome.path.display());
                     }
                     steps.push(StepReport::ok(
                         "completionInstall",
@@ -309,11 +305,7 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
     }
 
     let all_ok = failure.is_none();
-    let next_steps = if all_ok {
-        Some(NextSteps::recommended())
-    } else {
-        None
-    };
+    let next_steps = if all_ok { Some(NextSteps::recommended()) } else { None };
     let report = SetupReport {
         steps,
         all_ok,
@@ -453,7 +445,7 @@ fn ensure_confirm_mode(text_mode: bool) -> std::result::Result<ConfirmModeOutcom
     }
 
     let items = [
-        "confirm — 慎重: AI agent 経由では確定されず下書きで止まる (安全)",
+        "confirm — 慎重: AI agent 経由では確定せず Validation エラーで停止 (人間が TTY で再実行)",
         "auto    — 信頼: 指示どおり即 force=true で確定 (摩擦なし)",
     ];
     if text_mode {

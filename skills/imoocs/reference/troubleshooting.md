@@ -53,9 +53,19 @@ imoocs auth status
 - Google (スライド PDF / Drive) 側の切れは `imoocs auth login-google`。`imoocs doctor --format json` の `googleAuthenticated` が false ならここを案内。
 - 両方まとめて確認するなら `imoocs doctor`。テキスト要約でも十分な情報が出る。機械処理したいときは `--format json`。
 
-## `submit` したのに `submitted: false` が返る
+## `submit` / `upload` が exit 3 (`VALIDATION_ERROR`) で止まる
 
-下書きには積まれているが確定されていない状態。envelope と stderr の notice をそのままユーザに引用して、どうするか判断を仰ぐ。agent 側で勝手に再試行したり、「提出しました」と要約したりしない。
+`assignment.confirm = "confirm"` 設定下で以下のどれかが起きた場合、CLI は**API を呼ばずに中断**する (サーバ状態は変わらない):
+
+- 非 TTY (agent / パイプ / CI) から呼ばれた
+- TTY プロンプトで `n` を押した / EOF で閉じた
+
+`error.hint` を読んでユーザに状況を伝え、どう進めるか判断を仰ぐ。勝手に再試行したり `--data` を書き換えて再送したりしない。選択肢は 2 つ:
+
+1. TTY (対話シェル) から `imoocs assignment submit ...` を叩き直す
+2. `~/.config/imoocs/config.toml` の `[assignment] confirm` を `"auto"` に変更 (agent に委任する意思があるときのみ)
+
+その他の exit 3 は引数不備 (`--data` の JSON 形式 / 初回セットアップ未了) が原因。`error.hint` と `imoocs setup` / `imoocs assignment show` で分岐。
 
 ## スライド PDF が消えた / 見つからない
 

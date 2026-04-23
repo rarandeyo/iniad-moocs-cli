@@ -266,8 +266,7 @@ mod tests {
 
     #[test]
     fn drive_file_fragment_does_not_leak_into_id() {
-        let html =
-            r#"<html><body><iframe src="https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_FRAGMENT_0001/view#junk"></iframe></body></html>"#;
+        let html = r#"<html><body><iframe src="https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_FRAGMENT_0001/view#junk"></iframe></body></html>"#;
         match &embeds(html)[0] {
             Embed::GoogleDrive { id, .. } => assert_eq!(id, "FAKE_DRIVE_FILE_ID_FRAGMENT_0001"),
             _ => panic!("expected GoogleDrive file"),
