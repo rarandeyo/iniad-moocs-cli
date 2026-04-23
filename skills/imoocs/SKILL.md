@@ -1,11 +1,13 @@
 ---
 name: imoocs
-description: INIAD MOOCs (moocs.iniad.org) の授業・課題・スライドを Rust 製 CLI `imoocs` から操作するための手順書。ユーザが MOOCs の URL を貼ったとき、「未提出の課題を教えて」「この課題を出したい」「授業資料を読みたい」「スライドを PDF で」と言ったとき、あるいは iniad / 東洋 / moocs / 履修 / 提出 / assignment / submit / 出席 / 採点 などの語が出たときは必ずこの skill を使うこと。URL を明示されていなくても、文脈から INIAD の学習管理システムが対象だと判断できるなら同じく使う。Web ブラウザや Playwright を直接触る必要はない — CLI が認証もスクレイプも肩代わりする。
+description: INIAD MOOCs (moocs.iniad.org) のコース・レッスン・課題情報・スライド・Drive 配布物の閲覧、取得、整理を Rust 製 CLI `imoocs` から行うための手順書。課題確認や提出操作を扱う場合も、提出物の内容、提出判断、提出操作、および関連規約の順守は利用者の責任とする。ユーザが MOOCs の URL を貼ったとき、「未提出の課題を教えて」「この課題を出したい」「授業資料を読みたい」「スライドを PDF で」と言ったとき、あるいは iniad / 東洋 / moocs / 履修 / 提出 / assignment / submit / 出席 / 採点 などの語が出たときは必ずこの skill を使うこと。URL を明示されていなくても、文脈から INIAD の学習管理システムが対象だと判断できるなら同じく使う。Web ブラウザや Playwright を直接触る必要はない — CLI が認証もスクレイプも肩代わりする。
 ---
 
 # imoocs — INIAD MOOCs 操作 skill
 
 INIAD MOOCs ([moocs.iniad.org](https://moocs.iniad.org/)) の授業 / 課題 / スライド / Drive 添付を、Rust 製 CLI `imoocs` を介して読み書きするための判断フロー。
+
+この skill は閲覧・取得・整理を主軸に据える。書き込み系 (`submit` / `upload`) を扱う場合でも、実行はユーザの明示指示が前提で、提出物の内容、提出判断、提出操作、および関連規約の順守は利用者の責任とする。
 
 ## この skill を使う場面
 

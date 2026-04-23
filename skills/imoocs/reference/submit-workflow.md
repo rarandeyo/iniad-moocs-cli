@@ -2,6 +2,8 @@
 
 `imoocs assignment` 系で課題を出すときの段取り。SKILL.md のフロー B から呼ばれる詳細版。前身 MCP (Playwright) 時代から引き継ぐべき「agent 側の運用知」をここに集約している。
 
+この文書は提出操作を進めるときの作業メモであり、提出物の内容、提出判断、提出操作、および関連規約の順守は利用者の責任。agent は明示的な依頼なしに `submit` / `upload` を実行しない。
+
 ## 0. 前提
 
 - MOOCs 認証済 (`imoocs auth status` → exit 0)。
