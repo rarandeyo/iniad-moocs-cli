@@ -69,7 +69,7 @@ fn validate_drive_id(id: &str) -> Result<()> {
 }
 
 /// HTTP status を型付きエラーに変換する。初回 fetch と virus-scan confirm
-/// retry の双方で使うので、同一 exit-code ポリシーになる (DESIGN §4.7)。
+/// retry の双方で使うので、同一 exit-code ポリシーになる。
 fn classify_drive_status(status: StatusCode, what: &str) -> Result<()> {
     match status.as_u16() {
         200 => Ok(()),
@@ -178,7 +178,7 @@ fn classify_xhr_error(status: StatusCode, body: &str, what: &str) -> ImoocsError
         {
             ImoocsError::Api(format!(
                 "Drive XHR rejected our API key at {what}: {err_msg}. \
-                 Endpoint/key may have rotated upstream (see docs/DESIGN.md §4.11)."
+                 Endpoint/key may have rotated upstream."
             ))
         }
         401 | 403 => ImoocsError::Auth {
@@ -221,7 +221,7 @@ async fn list_drive_folder_at(session: &Session, folder_id: &str, endpoint: &str
     Ok(DriveFolderListing {
         folder_id: folder_id.to_string(),
         items,
-        // envelope back-compat (DESIGN §5); XHR pagination は常に全件取得する。
+        // envelope 後方互換で残している。XHR pagination で常に全件取得するため実質 dead。
         truncated: false,
         fetched_at: now_rfc3339(),
     })

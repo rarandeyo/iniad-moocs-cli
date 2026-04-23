@@ -80,7 +80,7 @@ imoocs drive list FAKE_DRIVE_ROOT_HIST_REDACT0001
 - 0 件 → 「この年度用のフォルダが Drive に見当たりません。ルートを変更しますか」とユーザに確認。
 - 複数ヒット → 候補を提示して選んでもらう。
 
-v1.1 以降 `imoocs drive list` は `nextPageToken` で全件取得する (XHR pagination。`docs/DESIGN.md §4.11`) ため、旧来の 50 件 truncate を考慮する必要はない。`truncated` フィールドは後方互換で残るが常に `false`。
+v1.1 以降 `imoocs drive list` は `nextPageToken` で全件取得する (XHR pagination) ため、旧来の 50 件 truncate を考慮する必要はない。`truncated` フィールドは後方互換で残るが常に `false`。
 
 ### Step 4. 年度サブフォルダ配下をコースと突き合わせる
 
@@ -164,7 +164,7 @@ matchStrategy = "unresolved"
 | `imoocs course list` が exit 2 (`AUTH_EXPIRED`) | `imoocs auth login` を案内してから再実行 |
 | `imoocs course list` が exit 6/7 | ネットワーク回復後に再試行 (学外でも通るはず。exit 7 が出るのは限定的) |
 | `imoocs drive list` が exit 2 | Google SSO セッション切れ。`imoocs auth login-google` を案内して再実行 |
-| `imoocs drive list` が `Parse("Drive XHR endpoint may have changed upstream")` | Google 側で v2beta XHR の shape / endpoint / API key が変わった可能性 (`docs/DESIGN.md §4.11`)。CLI のアップデートを待つか issue 報告 |
+| `imoocs drive list` が `Parse("Drive XHR endpoint may have changed upstream")` | Google 側で v2beta XHR の shape / endpoint / API key が変わった可能性。CLI のアップデートを待つか issue 報告 |
 | 年度フォルダが Drive に無い | ルート folderId がユーザ共有ドライブの古い ID の可能性。ユーザに現行ルートを確認 |
 | コースフォルダが 0 件ヒット | その年度のフォルダがまだ Drive に用意されていない。当該コースは `unresolved` で残す |
 
@@ -180,5 +180,4 @@ matchStrategy = "unresolved"
 
 ## 関連
 
-- 既存 [`imoocs`](../imoocs/SKILL.md) skill — 課題提出 / スライド取得 / レッスン閲覧などの実作業はそちら。Drive 操作は `imoocs drive list` / `imoocs drive fetch` を使う。
-- [`docs/DESIGN.md`](../../docs/DESIGN.md) §4.11 — Drive scrape の実装解説と 50 件制限の出所。本スキルは CLI に手を入れず、外側で orchestration するだけ。
+- 既存 [`imoocs`](../imoocs/SKILL.md) skill — 課題提出 / スライド取得 / レッスン閲覧などの実作業はそちら。Drive 操作は `imoocs drive list` / `imoocs drive fetch` を使う。本スキルは CLI に手を入れず、外側で orchestration するだけ。

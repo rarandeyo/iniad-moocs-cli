@@ -1,7 +1,6 @@
 # CLAUDE.md — iniad-moocs-cli
 
-Claude Code がこのリポジトリで作業する際の前提。詳しい設計は
-[docs/DESIGN.md](./docs/DESIGN.md)、エージェント向け操作手順は
+Claude Code がこのリポジトリで作業する際の前提。エージェント向け操作手順は
 [skills/imoocs/SKILL.md](./skills/imoocs/SKILL.md) を読む。
 
 - Rust toolchain は `mise.toml` で 1.93.1 に固定 (`mise install` で取得)。

@@ -127,8 +127,6 @@ Linux でビルド時に `dbus-1` が見つからないエラーが出たら `li
 
 ## Docs
 
-- [docs/DESIGN.md](./docs/DESIGN.md) — 設計思想、モジュール構成、
-  実装中に踏んだ落とし穴と修正履歴、v2 延期リスト、MOOCs 側 API 早見表。
 - [skills/imoocs/SKILL.md](./skills/imoocs/SKILL.md) — agent 向け判断フロー。
 - [skills/imoocs/reference/submit-workflow.md](./skills/imoocs/reference/submit-workflow.md) — 課題提出チェックリスト。
 - [skills/imoocs/reference/troubleshooting.md](./skills/imoocs/reference/troubleshooting.md) — exit code / 認証切れ対処。

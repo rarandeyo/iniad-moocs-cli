@@ -143,4 +143,3 @@ MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返
 - [`reference/schema.md`](./reference/schema.md) — envelope と主要データ型 (`Course` / `CourseDetail` / `LessonContent` / `AssignmentSummary` / `AssignmentDetail` / `OpenResult` / `Drive*`)。フィールド名と `AssignmentStatus` vs `DerivedStatus` の対応表はここ。
 - [`reference/submit-workflow.md`](./reference/submit-workflow.md) — 課題提出のチェックリスト (ipynb 再実行 / html 生成 / 整合性確認 / 事後確認 / 未提出棚卸し) をステップ単位で。
 - [`reference/troubleshooting.md`](./reference/troubleshooting.md) — exit code ごとの対処、`NETWORK_RESTRICTED` の案内文例、ログイン切れ / Google SSO 切れの復帰手順。
-- 設計の背景を知りたい開発者向けには、リポジトリの [`docs/DESIGN.md`](../../docs/DESIGN.md) 第 4 章 (Gotchas) と第 7 章 (MOOCs 側 API 早見表) が有益。agent が通常作業で読む必要はない。

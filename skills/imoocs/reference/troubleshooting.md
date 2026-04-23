@@ -80,7 +80,7 @@ imoocs auth status
 
 ## `imoocs auth *` が JSON を返さない
 
-仕様。`--format json` を付けても無視される (DESIGN.md 第 1 章)。agent は exit code と stderr で判断する:
+仕様。`--format json` を付けても無視される。agent は exit code と stderr で判断する:
 
 - `auth status` → 0 / 2
 - `auth login` → 0 / 2
