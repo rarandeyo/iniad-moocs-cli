@@ -37,13 +37,12 @@
    ```sh
    imoocs setup
    ```
-   以下の 5 step が順に走る:
+   以下の 4 step が順に走る:
 
    1. **INIAD MOOCs ログイン** — username / password を対話入力 (password は OS のキーチェーンに保存)
    2. **Google SSO セッション取得** — 自動
    3. **提出モード** (`assignment.confirm`) — `confirm` (TTY で `y` 確認・それ以外は中断) / `auto` (即確定) の 2 択。詳細は [Config](#config)
    4. **shell 補完の自動配置** — XDG 標準パスに配置するか確認
-   5. **最終診断** — `doctor` で認証状態を検証して完了
 
 3. **2つのAgent skillをinstall**
    ```sh

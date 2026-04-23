@@ -95,7 +95,7 @@ pub enum Command {
     /// MOOCs の URL を開き、種類に応じた envelope
     /// (course / lesson-with-assignments / …) を返す。
     Open(commands::open::OpenArgs),
-    /// 初期セットアップウィザード: MOOCs ログイン、Google SSO、最終診断。
+    /// 初期セットアップウィザード: MOOCs ログイン、Google SSO、提出モード、shell 補完。
     Setup(commands::setup::SetupArgs),
     /// shell completion を stdout に出力 (`generate`) または XDG 標準パスに配置 (`install`) する。
     Completion {

@@ -1,8 +1,9 @@
 //! `imoocs setup` — 初期セットアップのファサード。
 //!
-//! `auth login` → `auth login-google` → `doctor` を順次呼び出し、単一の
-//! `SetupReport` envelope として結果を報告する。自前の state / dotfile は
-//! 生成せず、既存の discrete verbs と等価な副作用だけ残す。
+//! `auth login` → `auth login-google` → `confirmMode` → `completionInstall`
+//! を順次呼び出し、単一の `SetupReport` envelope として結果を報告する。
+//! 自前の state / dotfile は生成せず、既存の discrete verbs と等価な副作用
+//! だけ残す。
 
 use std::process::ExitCode;
 
@@ -20,8 +21,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::cli::GlobalArgs;
+use crate::commands::auth;
 use crate::commands::auth::map_dialoguer_err;
-use crate::commands::{auth, doctor};
 use crate::output::{self, OutputMode};
 
 #[derive(Debug, Args)]
@@ -141,9 +142,9 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
     let mut failure: Option<ImoocsError> = None;
 
     if text_mode {
-        eprintln!("[1/5] INIAD MOOCs ログイン ...");
+        eprintln!("[1/4] INIAD MOOCs ログイン ...");
     }
-    tracing::info!("setup: step 1/5 authLogin");
+    tracing::info!("setup: step 1/4 authLogin");
     match auth::do_login(args.username.clone(), args.password_stdin).await {
         Ok(outcome) => {
             if text_mode {
@@ -164,14 +165,14 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
         steps.push(StepReport::skipped("authLoginGoogle", "prior step failed"));
     } else if args.skip_google {
         if text_mode {
-            eprintln!("[2/5] Google SSO ... skipped (--skip-google)");
+            eprintln!("[2/4] Google SSO ... skipped (--skip-google)");
         }
         steps.push(StepReport::skipped("authLoginGoogle", "--skip-google"));
     } else {
         if text_mode {
-            eprintln!("[2/5] Google SSO セッション取得 ...");
+            eprintln!("[2/4] Google SSO セッション取得 ...");
         }
-        tracing::info!("setup: step 2/5 authLoginGoogle");
+        tracing::info!("setup: step 2/4 authLoginGoogle");
         match auth::do_login_google().await {
             Ok(username) => {
                 if text_mode {
@@ -193,9 +194,9 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
         steps.push(StepReport::skipped("confirmMode", "prior step failed"));
     } else {
         if text_mode {
-            eprintln!("[3/5] 提出モード (assignment.confirm) ...");
+            eprintln!("[3/4] 提出モード (assignment.confirm) ...");
         }
-        tracing::info!("setup: step 3/5 confirmMode");
+        tracing::info!("setup: step 3/4 confirmMode");
         match ensure_confirm_mode(text_mode) {
             Ok(ConfirmModeOutcome::AlreadySet(mode)) => {
                 steps.push(StepReport::skipped(
@@ -227,9 +228,9 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
             steps.push(StepReport::skipped("completionInstall", "not requested"));
         } else {
             if text_mode {
-                eprintln!("[4/5] shell completion の自動配置 ...");
+                eprintln!("[4/4] shell completion の自動配置 ...");
             }
-            tracing::info!("setup: step 4/5 completionInstall");
+            tracing::info!("setup: step 4/4 completionInstall");
             match crate::commands::completion::do_install(None, false) {
                 Ok(outcome) => {
                     let marker = if outcome.wrote { "wrote" } else { "up to date" };
@@ -252,54 +253,6 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
                     // dotfile 補助的なので setup 全体は継続する (failure には載せない)
                     steps.push(StepReport::error("completionInstall", &err));
                 }
-            }
-        }
-    }
-
-    if failure.is_some() {
-        steps.push(StepReport::skipped("doctor", "prior step failed"));
-    } else {
-        tracing::info!("setup: step 5/5 doctor");
-        match doctor::compute_report().await {
-            Ok(report) => {
-                let expected_green = report.moocs_authenticated && (args.skip_google || report.google_authenticated);
-                let details = json!({
-                    "moocsAuthenticated": report.moocs_authenticated,
-                    "googleAuthenticated": report.google_authenticated,
-                });
-                if expected_green {
-                    steps.push(StepReport::ok("doctor", details));
-                } else {
-                    // login は成功したのに最終検証が通らない = Cookie 永続化失敗や
-                    // ネットワーク切断など、後続コマンドで必ず詰まるケース。
-                    let err = ImoocsError::Auth {
-                        reason: format!(
-                            "doctor verification failed (moocsAuthenticated={}, googleAuthenticated={})",
-                            report.moocs_authenticated, report.google_authenticated
-                        ),
-                        hint: Some(
-                            "ログインは成功したものの最終検証で未認証と判定されました。ネットワーク切断などを確認し `imoocs setup` を再実行してください。".into(),
-                        ),
-                    };
-                    if text_mode {
-                        eprintln!(
-                            "[5/5] 最終診断: ✗ moocsAuthenticated={} googleAuthenticated={}",
-                            report.moocs_authenticated, report.google_authenticated
-                        );
-                    }
-                    let mut step = StepReport::error("doctor", &err);
-                    step.details = details;
-                    steps.push(step);
-                    failure = Some(err);
-                }
-            }
-            Err(e) => {
-                let err = ImoocsError::Internal(format!("doctor failed: {e}"));
-                if text_mode {
-                    eprintln!("[5/5] 最終診断: ✗ {err}");
-                }
-                steps.push(StepReport::error("doctor", &err));
-                failure = Some(err);
             }
         }
     }
@@ -379,17 +332,6 @@ fn step_ok_suffix(step: &str, details: &Value) -> String {
             .and_then(|v| v.as_str())
             .map(|m| format!("(confirm={m})"))
             .unwrap_or_default(),
-        "doctor" => {
-            let mooc = details
-                .get("moocsAuthenticated")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let goog = details
-                .get("googleAuthenticated")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            format!("(MOOCs={mooc}, Google={goog})")
-        }
         "completionInstall" => {
             let shell = details.get("shell").and_then(|v| v.as_str()).unwrap_or("-");
             let wrote = details.get("wrote").and_then(|v| v.as_bool()).unwrap_or(false);
