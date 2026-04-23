@@ -83,8 +83,8 @@ driveRootFolderId = "FAKE_DRIVE_ROOT_HIST_REDACT0001"
 year = 2026
 courseId = "INI301"
 name = "機械学習と人工知能"
-driveFolderId = "abc123"
-driveFolderUrl = "https://drive.google.com/drive/folders/abc123"
+driveFolderId = "FAKE_DRIVE_FOLDER_ID_SAMPLE_0001"
+driveFolderUrl = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_SAMPLE_0001"
 matchedAt = "2026-04-23"
 matchStrategy = "exact"
 
@@ -144,8 +144,8 @@ driveRootFolderId = "root"
 year = 2026
 courseId = "INI401"
 name = "x"
-driveFolderId = "fid"
-driveFolderUrl = "https://drive.google.com/drive/folders/fid"
+driveFolderId = "FAKE_DRIVE_FOLDER_ID_USER_CONFIRMED_0001"
+driveFolderUrl = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_USER_CONFIRMED_0001"
 matchStrategy = "user-confirmed"
 "#;
         let cdf: CourseDriveFolders = toml::from_str(toml).unwrap();
@@ -163,8 +163,8 @@ someFutureField = "ignored"
 year = 2026
 courseId = "INI301"
 name = "x"
-driveFolderId = "fid"
-driveFolderUrl = "u"
+driveFolderId = "FAKE_DRIVE_FOLDER_ID_FORWARD_COMPAT_0001"
+driveFolderUrl = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_FORWARD_COMPAT_0001"
 matchStrategy = "exact"
 futureFlag = true
 "#;

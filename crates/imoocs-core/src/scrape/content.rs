@@ -239,14 +239,14 @@ mod tests {
 
     #[test]
     fn classifies_drive_file_view() {
-        let html = r#"<html><body><iframe src="https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_HIST_REDACT001/view?usp=drive_link"></iframe></body></html>"#;
+        let html = r#"<html><body><iframe src="https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_FOR_TESTS_0001/view?usp=drive_link"></iframe></body></html>"#;
         let got = embeds(html);
         assert_eq!(got.len(), 1);
         match &got[0] {
             Embed::GoogleDrive { embed_url, kind, id } => {
-                assert!(embed_url.contains("FAKE_DRIVE_FILE_ID_HIST_REDACT001"));
+                assert!(embed_url.contains("FAKE_DRIVE_FILE_ID_FOR_TESTS_0001"));
                 assert_eq!(*kind, DriveKind::File);
-                assert_eq!(id, "FAKE_DRIVE_FILE_ID_HIST_REDACT001");
+                assert_eq!(id, "FAKE_DRIVE_FILE_ID_FOR_TESTS_0001");
             }
             other => panic!("expected GoogleDrive, got {other:?}"),
         }
@@ -254,11 +254,11 @@ mod tests {
 
     #[test]
     fn classifies_drive_file_preview() {
-        let html = r#"<html><body><iframe src="https://drive.google.com/file/d/1ABC/preview"></iframe></body></html>"#;
+        let html = r#"<html><body><iframe src="https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_PREVIEW_0001/preview"></iframe></body></html>"#;
         match &embeds(html)[0] {
             Embed::GoogleDrive { kind, id, .. } => {
                 assert_eq!(*kind, DriveKind::File);
-                assert_eq!(id, "1ABC");
+                assert_eq!(id, "FAKE_DRIVE_FILE_ID_PREVIEW_0001");
             }
             _ => panic!("expected GoogleDrive file"),
         }
@@ -267,20 +267,20 @@ mod tests {
     #[test]
     fn drive_file_fragment_does_not_leak_into_id() {
         let html =
-            r#"<html><body><iframe src="https://drive.google.com/file/d/1ABC/view#junk"></iframe></body></html>"#;
+            r#"<html><body><iframe src="https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_FRAGMENT_0001/view#junk"></iframe></body></html>"#;
         match &embeds(html)[0] {
-            Embed::GoogleDrive { id, .. } => assert_eq!(id, "1ABC"),
+            Embed::GoogleDrive { id, .. } => assert_eq!(id, "FAKE_DRIVE_FILE_ID_FRAGMENT_0001"),
             _ => panic!("expected GoogleDrive file"),
         }
     }
 
     #[test]
     fn classifies_drive_folder() {
-        let html = r#"<html><body><iframe src="https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_HIST_REDACT1"></iframe></body></html>"#;
+        let html = r#"<html><body><iframe src="https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_FOR_TESTS_0001"></iframe></body></html>"#;
         match &embeds(html)[0] {
             Embed::GoogleDrive { kind, id, .. } => {
                 assert_eq!(*kind, DriveKind::Folder);
-                assert_eq!(id, "FAKE_DRIVE_FOLDER_ID_HIST_REDACT1");
+                assert_eq!(id, "FAKE_DRIVE_FOLDER_ID_FOR_TESTS_0001");
             }
             _ => panic!("expected GoogleDrive folder"),
         }

@@ -233,72 +233,72 @@ mod tests {
     #[test]
     fn parses_file_view_url() {
         assert_eq!(
-            parse_drive_target("https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_HIST_REDACT001/view?usp=drive_link"),
-            DriveTarget::File("FAKE_DRIVE_FILE_ID_HIST_REDACT001".into())
+            parse_drive_target("https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_FOR_TESTS_0001/view?usp=drive_link"),
+            DriveTarget::File("FAKE_DRIVE_FILE_ID_FOR_TESTS_0001".into())
         );
     }
 
     #[test]
     fn parses_folder_url() {
         assert_eq!(
-            parse_drive_target("https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_HIST_REDACT1"),
-            DriveTarget::Folder("FAKE_DRIVE_FOLDER_ID_HIST_REDACT1".into())
+            parse_drive_target("https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_FOR_TESTS_0001"),
+            DriveTarget::Folder("FAKE_DRIVE_FOLDER_ID_FOR_TESTS_0001".into())
         );
     }
 
     #[test]
     fn parses_legacy_uc_url() {
         assert_eq!(
-            parse_drive_target("https://drive.google.com/uc?export=download&id=1ABC_23"),
-            DriveTarget::File("1ABC_23".into())
+            parse_drive_target("https://drive.google.com/uc?export=download&id=FAKE_DRIVE_FILE_ID_SHORT_0001"),
+            DriveTarget::File("FAKE_DRIVE_FILE_ID_SHORT_0001".into())
         );
     }
 
     #[test]
     fn parses_id_first_uc_url() {
         assert_eq!(
-            parse_drive_target("https://drive.google.com/uc?id=1ABC_23&export=download"),
-            DriveTarget::File("1ABC_23".into())
+            parse_drive_target("https://drive.google.com/uc?id=FAKE_DRIVE_FILE_ID_SHORT_0001&export=download"),
+            DriveTarget::File("FAKE_DRIVE_FILE_ID_SHORT_0001".into())
         );
     }
 
     #[test]
     fn parses_id_first_usercontent_url() {
         assert_eq!(
-            parse_drive_target("https://drive.usercontent.google.com/download?id=1ABC_23"),
-            DriveTarget::File("1ABC_23".into())
+            parse_drive_target("https://drive.usercontent.google.com/download?id=FAKE_DRIVE_FILE_ID_SHORT_0001"),
+            DriveTarget::File("FAKE_DRIVE_FILE_ID_SHORT_0001".into())
         );
     }
 
     #[test]
     fn file_url_fragment_does_not_leak_into_id() {
         assert_eq!(
-            parse_drive_target("https://drive.google.com/file/d/1ABC_23/view#junk"),
-            DriveTarget::File("1ABC_23".into())
+            parse_drive_target("https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_SHORT_0001/view#junk"),
+            DriveTarget::File("FAKE_DRIVE_FILE_ID_SHORT_0001".into())
         );
     }
 
     #[test]
     fn folder_url_fragment_does_not_leak_into_id() {
         assert_eq!(
-            parse_drive_target("https://drive.google.com/drive/folders/1ABC_23#junk"),
-            DriveTarget::Folder("1ABC_23".into())
+            parse_drive_target("https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_SHORT_0001#junk"),
+            DriveTarget::Folder("FAKE_DRIVE_FOLDER_ID_SHORT_0001".into())
         );
     }
 
     #[test]
     fn parses_usercontent_url() {
         assert_eq!(
-            parse_drive_target("https://drive.usercontent.google.com/download?id=1XYZ&export=download&confirm=t"),
-            DriveTarget::File("1XYZ".into())
+            parse_drive_target("https://drive.usercontent.google.com/download?id=FAKE_DRIVE_FILE_ID_USERCONTENT_0001&export=download&confirm=t"),
+            DriveTarget::File("FAKE_DRIVE_FILE_ID_USERCONTENT_0001".into())
         );
     }
 
     #[test]
     fn parses_bare_id_as_ambiguous() {
         assert_eq!(
-            parse_drive_target("FAKE_DRIVE_FILE_ID_HIST_REDACT001"),
-            DriveTarget::Ambiguous("FAKE_DRIVE_FILE_ID_HIST_REDACT001".into())
+            parse_drive_target("FAKE_DRIVE_FILE_ID_FOR_TESTS_0001"),
+            DriveTarget::Ambiguous("FAKE_DRIVE_FILE_ID_FOR_TESTS_0001".into())
         );
     }
 

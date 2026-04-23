@@ -126,8 +126,8 @@ driveRootFolderId = "FAKE_DRIVE_ROOT_HIST_REDACT0001"
 year = 2026
 courseId = "INI301"
 name = "機械学習と人工知能"
-driveFolderId = "abc123..."
-driveFolderUrl = "https://drive.google.com/drive/folders/abc123..."
+driveFolderId = "FAKE_DRIVE_FOLDER_ID_SAMPLE_0001"
+driveFolderUrl = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_SAMPLE_0001"
 matchedAt = "2026-04-23"
 matchStrategy = "exact"   # exact | partial | user-confirmed | unresolved
 

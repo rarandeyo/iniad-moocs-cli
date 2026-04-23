@@ -16,3 +16,6 @@ Cargo.lock.bak
 
 # skill-creator の eval workspace
 /skills/imoocs-workspace/
+
+# codex plugin が作る session marker
+/.codex

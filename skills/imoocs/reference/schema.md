@@ -46,8 +46,8 @@
       "localPdfPath": "/home/.../slides/<sha1>.pdf", "pageCount": 16,
       "fetchedAt": "2026-04-20T00:00:00Z" },
     { "type": "google-drive", "kind": "file",
-      "id": "FAKE_DRIVE_FILE_ID_HIST_REDACT001",
-      "embedUrl": "https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_HIST_REDACT001/preview" },
+      "id": "FAKE_DRIVE_FILE_ID_FOR_TESTS_0001",
+      "embedUrl": "https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_FOR_TESTS_0001/preview" },
     { "type": "iframe", "src": "..." }
   ],
   "assignments": ["ai-s02-assign2"]
@@ -126,7 +126,7 @@ tag-based enum with `type`:
 ### DriveItem (`drive list` の items 要素)
 ```json
 {
-  "id": "FAKE_DRIVE_FILE_ID_HIST_REDACT001",
+  "id": "FAKE_DRIVE_FILE_ID_FOR_TESTS_0001",
   "name": "ai-01.zip",
   "mime": "application/x-zip-compressed",
   "kind": "file",
@@ -139,7 +139,7 @@ tag-based enum with `type`:
 ### DriveFolderListing (`drive list`)
 ```json
 {
-  "folderId": "FAKE_DRIVE_FOLDER_ID_HIST_REDACT1",
+  "folderId": "FAKE_DRIVE_FOLDER_ID_FOR_TESTS_0001",
   "items": [ /* DriveItem */ ],
   "truncated": false,
   "fetchedAt": "2026-04-22T00:00:00Z"
@@ -151,10 +151,10 @@ tag-based enum with `type`:
 ### DriveFileFetchResult (`drive fetch`)
 ```json
 {
-  "fileId": "FAKE_DRIVE_FILE_ID_HIST_REDACT001",
+  "fileId": "FAKE_DRIVE_FILE_ID_FOR_TESTS_0001",
   "filename": "ai-01.zip",
   "mime": "application/octet-stream",
-  "localPath": "/home/<user>/.cache/imoocs/drive/FAKE_DRIVE_FILE_ID_HIST_REDACT001.zip",
+  "localPath": "/home/<user>/.cache/imoocs/drive/FAKE_DRIVE_FILE_ID_FOR_TESTS_0001.zip",
   "sizeBytes": 99655,
   "fetchedAt": "2026-04-22T07:17:02.507682872Z",
   "fromCache": false

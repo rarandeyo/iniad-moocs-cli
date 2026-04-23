@@ -611,8 +611,8 @@ mod tests {
 
     #[test]
     fn validate_drive_id_accepts_typical_ids() {
-        validate_drive_id("FAKE_DRIVE_FILE_ID_HIST_REDACT001").unwrap();
-        validate_drive_id("FAKE_DRIVE_FOLDER_ID_HIST_REDACT1").unwrap();
+        validate_drive_id("FAKE_DRIVE_FILE_ID_FOR_TESTS_0001").unwrap();
+        validate_drive_id("FAKE_DRIVE_FOLDER_ID_FOR_TESTS_0001").unwrap();
         validate_drive_id("abc").unwrap();
     }
 
