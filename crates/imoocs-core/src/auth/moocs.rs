@@ -1,13 +1,13 @@
-//! MOOCs (Keycloak) login.
+//! MOOCs (Keycloak) ログイン。
 //!
-//! Adapted from moocs-collect `src/repository/auth.rs:80-99` (MIT, Copyright 2024 Yuki Natori).
+//! moocs-collect `src/repository/auth.rs:80-99` (MIT, Copyright 2024 Yuki Natori) より転用。
 //!
 //! Flow:
-//! 1. GET `https://moocs.iniad.org/auth/iniad` (follow redirects, cookie store attached)
-//! 2. If final URL is `/courses` → already logged in, done.
-//! 3. Otherwise parse response HTML for `form.form-signin[action]`.
-//! 4. POST that action with `username` + `password` as `application/x-www-form-urlencoded`.
-//! 5. GET `/account` and check that the final URL path is `/account`.
+//! 1. `https://moocs.iniad.org/auth/iniad` を GET (redirect を追う。cookie store 付き)
+//! 2. 最終 URL が `/courses` ならすでにログイン済みとみなして終了。
+//! 3. そうでなければレスポンス HTML から `form.form-signin[action]` を parse する。
+//! 4. その action に対して `username` + `password` を `application/x-www-form-urlencoded` で POST。
+//! 5. `/account` を GET し、最終 URL のパスが `/account` であることを確認する。
 
 use scraper::Html;
 use tracing::{debug, info};

@@ -1,16 +1,15 @@
-//! Parse the `/assignments/<...>/problem` HTML fragment into a typed list of
-//! [`ProblemField`]s.
+//! `/assignments/<...>/problem` の HTML fragment を [`ProblemField`] のリストに parse する。
 //!
-//! Inputs observed so far:
+//! これまでに観測した入力パターン:
 //! - `<textarea name="pid">`  → `ProblemField::Textarea`
 //! - `<input type="text" name="pid">` / `input type="number"` → `Text`
-//! - `<input type="radio" name="pid" value="...">`   — one pid with many radios
-//! - `<input type="checkbox" name="pid" value="...">` — same shape as radio
+//! - `<input type="radio" name="pid" value="...">`   — 1 つの pid に複数の radio
+//! - `<input type="checkbox" name="pid" value="...">` — radio と同じ形状
 //! - `<input type="file" name="pid" accept="...">`  → `File`
 //!
-//! Question labels are the `<label>` / `<p>` text that immediately precedes a
-//! non-radio-inline field. Radio/checkbox option texts are taken from the
-//! surrounding `<label class="radio-inline">` (stripping leading whitespace).
+//! question label は、radio-inline でないフィールドの直前に現れる
+//! `<label>` / `<p>` のテキスト。radio/checkbox の option text は
+//! 囲む `<label class="radio-inline">` から抽出する (先頭の空白は落とす)。
 
 use std::collections::BTreeMap;
 
@@ -148,8 +147,8 @@ fn contains_input(el: &ElementRef<'_>) -> bool {
     })
 }
 
-/// For a radio/checkbox input, return the text of the enclosing `<label>` with
-/// the input's own children removed. Falls back to the next sibling text node.
+/// radio / checkbox input に対し、それを囲む `<label>` の text を返す。
+/// input 自身の子要素は除外する。見つからなければ次の sibling の text ノードに fallback。
 fn nearest_label_text(input: &ElementRef<'_>) -> String {
     let mut cur = input.parent();
     for _ in 0..4 {
@@ -194,10 +193,10 @@ fn nearest_label_text(input: &ElementRef<'_>) -> String {
     String::new()
 }
 
-/// Merge `/answers` response into the parsed fields. `current_value` is a JSON
-/// scalar (string / array). For files, we copy `AnswerEntry::file` (which maps
-/// server `{filename, filetype, timestamp}`) and derive `downloadUrl` from the
-/// assignment key + pid.
+/// `/answers` のレスポンスを、parse 済みの field にマージする。
+/// `current_value` は JSON スカラー (string / array)。file type では
+/// `AnswerEntry::file` (サーバの `{filename, filetype, timestamp}` 相当) を
+/// コピーしつつ、`downloadUrl` は assignment key + pid から派生させる。
 pub fn apply_answers(
     fields: &mut [ProblemField],
     answers: &std::collections::HashMap<String, crate::schemas::AnswerEntry>,

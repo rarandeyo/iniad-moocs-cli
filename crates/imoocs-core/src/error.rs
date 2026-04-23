@@ -1,8 +1,8 @@
-//! Error type and structured exit codes.
+//! エラー型と構造化 exit code。
 //!
-//! Exit codes (see plan §CLI Design Principles #8):
+//! Exit code (詳細は plan §CLI Design Principles #8):
 //!   0 Success, 1 API, 2 Auth, 3 Validation, 4 NotFound, 5 Internal, 6 Network,
-//!   7 NetworkRestricted, 8 NonPublic.
+//!   7 NetworkRestricted, 8 NonPublic。
 
 use thiserror::Error;
 

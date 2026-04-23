@@ -1,24 +1,24 @@
-//! Google Drive file / folder access via the SAML-authenticated session.
+//! SAML 認証済み session を使った Google Drive のファイル / フォルダアクセス。
 //!
-//! Two entry points:
+//! 2 つの entry point:
 //!
-//! - [`list_drive_folder`] — GETs `drive.google.com/drive/folders/<id>`, pulls the
-//!   `window['_DRIVE_ivd']` payload out of the returned HTML, and parses it into
-//!   a [`DriveFolderListing`]. No Drive API / OAuth — the session's SAML cookie is
-//!   enough for folders the user's INIAD Google account has access to.
-//! - [`fetch_drive_file`] — GETs
-//!   `drive.usercontent.google.com/download?id=<id>&export=download&confirm=t` and
-//!   caches the response under `$XDG_CACHE_HOME/imoocs/drive/<fileId>.<ext>` with
-//!   a 24h TTL. The pre-supplied `confirm=t` token bypasses the virus-scan
-//!   interstitial that Drive shows for files >25MB.
+//! - [`list_drive_folder`] — `drive.google.com/drive/folders/<id>` を GET し、
+//!   返却 HTML から `window['_DRIVE_ivd']` の payload を抜き出して
+//!   [`DriveFolderListing`] に parse する。Drive API / OAuth は不要 — INIAD の
+//!   Google アカウントがアクセス可能な folder であれば session の SAML cookie で十分。
+//! - [`fetch_drive_file`] —
+//!   `drive.usercontent.google.com/download?id=<id>&export=download&confirm=t` を GET し、
+//!   結果を `$XDG_CACHE_HOME/imoocs/drive/<fileId>.<ext>` に 24h TTL でキャッシュする。
+//!   URL に事前に `confirm=t` を仕込んでおくことで、25MB 超のファイルで Drive が
+//!   表示する virus-scan の interstitial を回避する。
 //!
-//! Endpoint / format references (checked 2026-04-22):
-//! - New DL host documented by Drive community + tanaikech 2024-01:
+//! endpoint / 仕様の参照先 (2026-04-22 時点で確認済み):
+//! - 新しい DL ホストについては Drive コミュニティ + tanaikech 2024-01 の gist:
 //!   <https://gist.github.com/tanaikech/f0f2d122e05bf5f971611258c22c110f>
-//! - `confirm` token is not validated server-side; any value works.
-//! - Google native types (`application/vnd.google-apps.document|spreadsheet|presentation`)
-//!   return empty from `drive.usercontent.google.com`; they must use
-//!   `docs.google.com/<kind>/d/<id>/export?exportFormat=...` (v2).
+//! - `confirm` token は server 側で検証されない (値は何でもよい)。
+//! - Google native 型 (`application/vnd.google-apps.document|spreadsheet|presentation`)
+//!   は `drive.usercontent.google.com` から空レスポンスになるため、
+//!   `docs.google.com/<kind>/d/<id>/export?exportFormat=...` を使う必要がある (v2 で対応予定)。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,15 +51,14 @@ const DRIVE_XHR_API_KEY: &str = "AIzaSyD_InbmSFufIEps5UAt2NmB_3LvBH3Sz_8";
 const DRIVE_XHR_PAGE_SIZE: usize = 1000;
 const DRIVE_XHR_MAX_PAGES: usize = 100;
 
-/// Matches `filename="..."` in a `Content-Disposition` header.
 static CONTENT_DISPOSITION_FILENAME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"filename\s*=\s*"([^"]+)""#).unwrap());
 
-/// Matches the virus-scan confirm interstitial (fallback; with `confirm=t` this
-/// should basically never fire — kept as a safety net).
+/// virus-scan confirm interstitial にマッチする (fallback。`confirm=t` を
+/// URL に仕込んでいる限り発火しないが、安全網として残す)。
 static CONFIRM_TOKEN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"name="confirm"\s+value="([^"]+)""#).unwrap());
 
-/// Reject IDs that could escape the cache directory or contain URL/shell
-/// metacharacters. Drive IDs are base64url-like (alphanumeric + `_-`).
+/// cache directory を脱出させるような id、あるいは URL / shell のメタ文字を
+/// 含む id を拒否する。Drive ID は base64url 類似 (alphanumeric + `_-`)。
 fn validate_drive_id(id: &str) -> Result<()> {
     if id.is_empty() || id.len() > 128 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         return Err(ImoocsError::Validation(format!(
@@ -69,8 +68,8 @@ fn validate_drive_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Map HTTP status to a typed error. Used by both the initial fetch and the
-/// virus-scan confirm retry so they share the exit-code policy (DESIGN §4.7).
+/// HTTP status を型付きエラーに変換する。初回 fetch と virus-scan confirm
+/// retry の双方で使うので、同一 exit-code ポリシーになる (DESIGN §4.7)。
 fn classify_drive_status(status: StatusCode, what: &str) -> Result<()> {
     match status.as_u16() {
         200 => Ok(()),
@@ -84,9 +83,9 @@ fn classify_drive_status(status: StatusCode, what: &str) -> Result<()> {
     }
 }
 
-/// Write `bytes` to `target` atomically by writing to a per-process tempfile
-/// and renaming on success. Prevents partial-write races when two processes
-/// fetch the same fileId concurrently.
+/// `bytes` を `target` に atomic に書く: プロセスごとの tempfile に書いて、
+/// 成功時に rename する。同一 fileId を 2 プロセスが並行取得した場合の
+/// 部分書き込みレースを防ぐ。
 fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {
     let name = target
         .file_name()
@@ -297,7 +296,6 @@ async fn fetch_all_pages(
     )))
 }
 
-/// Download a single Drive file into the local cache.
 pub async fn fetch_drive_file(
     session: &Session,
     paths: &Paths,
@@ -359,10 +357,10 @@ pub async fn fetch_drive_file(
     save_drive_file(paths, file_id, &filename, content_type.as_deref(), &bytes)
 }
 
-/// Inspect an initial Drive response body. Returns `Ok(Some(result))` only if a
-/// virus-scan retry succeeded with the server-provided `confirm` token.
-/// Returns `Ok(None)` when the response is a real binary we can cache.
-/// Errors on every other HTML shape (empty body, login redirect, unrecognised HTML).
+/// 初回 Drive レスポンス body を解析する。server 提供の `confirm` token で
+/// virus-scan retry が成功した場合のみ `Ok(Some(result))` を返す。
+/// cache 可能な実バイナリなら `Ok(None)`。
+/// それ以外の HTML (空 body / login リダイレクト / 不明な HTML) はすべてエラーにする。
 async fn detect_html_response(
     session: &Session,
     paths: &Paths,

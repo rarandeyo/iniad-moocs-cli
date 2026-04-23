@@ -1,6 +1,6 @@
-//! Persistent config at `$XDG_CONFIG_HOME/imoocs/config.toml`.
+//! `$XDG_CONFIG_HOME/imoocs/config.toml` に保存する永続設定。
 //!
-//! Holds non-sensitive preferences. Secrets go to keyring + cookies.json (cache).
+//! 機微でない preferences のみ保持する。secret は keyring と cookies.json (cache) に置く。
 
 use std::fs;
 use std::path::Path;
@@ -23,10 +23,10 @@ pub struct Config {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SlidesConfig {
-    /// Where to store downloaded slide PDFs. Accepts:
+    /// ダウンロードしたスライド PDF の保存先。以下を受け付ける:
     /// - `"cache"` → `$XDG_CACHE_HOME/imoocs/slides/`
-    /// - `"tmp"`   → `/tmp/imoocs/slides/` (default; auto-cleaned by the OS)
-    /// - absolute path (e.g. `"/home/me/slides"`)
+    /// - `"tmp"`   → `/tmp/imoocs/slides/` (デフォルト。OS 側で自動クリーンアップされる)
+    /// - 絶対パス (例: `"/home/me/slides"`)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub out_dir: Option<String>,
 }
@@ -37,10 +37,11 @@ pub struct AssignmentConfig {
     pub confirm: Option<ConfirmMode>,
 }
 
-/// Controls how `assignment submit` / `assignment upload --force` finalise.
-/// `Auto` sends `force=true` unconditionally. `Confirm` only promotes to
-/// `force=true` when a human answers `y` at an interactive prompt; in
-/// non-interactive contexts it downgrades to `force=false` (draft save).
+/// `assignment submit` / `assignment upload --force` の確定挙動を制御する。
+/// `Auto` は無条件に `force=true` を送る。`Confirm` は対話プロンプトで人間が
+/// `y` と答えた場合のみ `force=true` を送る。ユーザが拒否する、または
+/// 非対話で実行された場合、CLI は API を呼ばずに Validation エラーで中断する
+/// (draft 保存はされない)。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConfirmMode {

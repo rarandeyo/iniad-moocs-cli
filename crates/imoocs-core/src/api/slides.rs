@@ -1,7 +1,7 @@
-//! Fetch a Google Slides pubembed, extract embedded SVGs, and merge them into a
-//! single PDF cached under `$XDG_CACHE_HOME/imoocs/slides/<sha1(embedUrl)>.pdf`.
+//! Google Slides の pubembed を取得し、埋め込み SVG を抜き出して 1 つの PDF に
+//! マージする。結果は `$XDG_CACHE_HOME/imoocs/slides/<sha1(embedUrl)>.pdf` にキャッシュ。
 //!
-//! SVG extraction approach adapted from moocs-collect `src/repository/slide.rs:56-113`.
+//! SVG の抽出方法は moocs-collect `src/repository/slide.rs:56-113` を参考にしている。
 
 use std::collections::HashMap;
 use std::fs;
@@ -23,11 +23,10 @@ use crate::session::Session;
 
 const SLIDES_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// Regex from moocs-collect: matches the escape-encoded <svg>...</svg>
-/// sequences that Google Slides embeds inside its JS init payload.
+/// moocs-collect 由来の regex: Google Slides が JS init payload 内に
+/// エスケープ付きで埋め込む `<svg>...</svg>` シーケンスにマッチする。
 static SVG_ESCAPED_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\\x3csvg[\s\S]*?\\x3c\\/svg\\x3e").unwrap());
 
-/// Regex to find `xlink:href="https://..."` image refs inside an SVG.
 static XLINK_HTTPS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"xlink:href="(https://[^"]+)""#).unwrap());
 
 #[derive(Debug)]
@@ -48,9 +47,9 @@ pub async fn fetch_slide_pdf(
     fetch_slide_pdf_with_dump(session, paths, embed_url, no_cache, None).await
 }
 
-/// Same as `fetch_slide_pdf` but, if `dump_dir` is provided, also writes the
-/// intermediate raw SVGs and the raw pubembed HTML there — useful for debugging
-/// blank-PDF issues without re-implementing the auth flow.
+/// 挙動は `fetch_slide_pdf` と同じだが、`dump_dir` が渡された場合は中間成果物
+/// (pubembed 生 HTML と抽出 SVG 群) をそのディレクトリにも書く。
+/// auth flow を再実装せずに「真っ白な PDF」問題を debug するのに便利。
 pub async fn fetch_slide_pdf_with_dump(
     session: &Session,
     paths: &Paths,
@@ -164,8 +163,6 @@ fn now_rfc3339() -> String {
         .unwrap_or_default()
 }
 
-/// Extract `<svg>...</svg>` strings from the escaped JS literals inside the
-/// pubembed response, and normalise the common escapes.
 fn extract_svgs(body: &str) -> Vec<String> {
     SVG_ESCAPED_RE
         .find_iter(body)
@@ -175,9 +172,9 @@ fn extract_svgs(body: &str) -> Vec<String> {
         .collect()
 }
 
-/// Replace every `xlink:href="https://..."` in the SVGs with a base64 data URI
-/// whose content is the fetched resource. Shares the download across SVGs that
-/// reference the same URL. Failures are warned and leave the original URL.
+/// SVG 群の `xlink:href="https://..."` をすべて base64 data URI に置換する
+/// (resource は実際に取得する)。同一 URL を参照する SVG 間でダウンロードを共有。
+/// 取得失敗時は warn ログを出し、元の URL をそのまま残す。
 async fn inline_image_refs(session: &Session, svgs: &[String]) -> Result<Vec<String>> {
     let mut urls: Vec<String> = Vec::new();
     for svg in svgs {
@@ -273,10 +270,10 @@ fn sniff_mime(bytes: &[u8]) -> &'static str {
     }
 }
 
-/// Compose multiple SVG pages into a single multi-page PDF.
+/// 複数の SVG ページから 1 つのマルチページ PDF を合成する。
 ///
-/// Uses `svg2pdf::to_pdf` (each SVG → single-page PDF bytes), then merges with
-/// `lopdf` using the canonical "renumber + harvest pages" approach.
+/// `svg2pdf::to_pdf` で各 SVG を単ページ PDF bytes にし、
+/// `lopdf` の定番手法 (id を renumber して pages を harvest) でマージする。
 fn svgs_to_pdf(svgs: &[String]) -> Result<Vec<u8>> {
     use svg2pdf::{usvg, ConversionOptions, PageOptions};
 
@@ -299,8 +296,8 @@ fn svgs_to_pdf(svgs: &[String]) -> Result<Vec<u8>> {
     merge_pdfs_lopdf(&per_slide_pdfs)
 }
 
-/// Merge multiple PDF byte-blobs into a single PDF using lopdf. Based on the
-/// canonical upstream example (lopdf/examples/merge.rs).
+/// 複数の PDF bytes を lopdf で 1 つにマージする。上流の正規例
+/// (lopdf/examples/merge.rs) を踏襲している。
 fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
     use std::collections::BTreeMap;
 

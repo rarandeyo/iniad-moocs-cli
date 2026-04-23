@@ -1,12 +1,12 @@
-//! imoocs-core — core library for the imoocs CLI.
+//! imoocs-core — imoocs CLI のコアライブラリ。
 //!
-//! Provides:
-//! - `auth`: login flows for MOOCs (Keycloak) and Google Workspace (SAML)
-//! - `session`: authenticated HTTP session with cookie jar, CSRF cache, auto re-login
-//! - `api`: typed wrappers for /assignments/... endpoints
-//! - `scrape`: HTML scrapers (courses list, lessons, pages, problem form, slides iframe)
-//! - `schemas`: serde+schemars types, stable JSON envelope
-//! - `util`: small helpers (html, stdout, paths)
+//! 提供モジュール:
+//! - `auth`: MOOCs (Keycloak) と Google Workspace (SAML) の login flow
+//! - `session`: cookie jar / CSRF cache / 自動 re-login 付きの認証 HTTP session
+//! - `api`: `/assignments/...` などに対する型付きラッパー
+//! - `scrape`: HTML scraper 群 (コース一覧、lesson、page、problem form、slide iframe)
+//! - `schemas`: serde + schemars の型定義、安定 JSON envelope
+//! - `util`: 小さめのヘルパー (html / stdout / paths)
 
 pub mod api;
 pub mod auth;

@@ -1,9 +1,9 @@
-//! Authenticated HTTP session: reqwest client with persistent cookie jar and CSRF cache.
+//! 認証付きの HTTP session: 永続化された cookie jar と CSRF cache を持つ reqwest クライアント。
 //!
-//! - Loads cookies from `$XDG_CACHE_HOME/imoocs/cookies.json` at startup
-//! - Saves cookies back after a successful login / write operation
-//! - Caches the `meta[name="csrf-token"]` value per-session (re-fetched on 419/422)
-//! - UA follows moocs-collect: Chrome 124 on Windows
+//! - 起動時に `$XDG_CACHE_HOME/imoocs/cookies.json` から cookie を読み込む
+//! - login / 書き込み系 API の成功後、cookie を同ファイルへ書き戻す
+//! - `meta[name="csrf-token"]` の値を session 単位でキャッシュする (419/422 時は再取得)
+//! - UA は moocs-collect に倣って Chrome 124 on Windows を名乗る
 
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
@@ -74,10 +74,9 @@ impl Session {
         *self.csrf_token.write().await = token;
     }
 
-    /// Return the value a reqwest request to `request_url` would actually send
-    /// for cookie `name`. Uses the jar's request-matching rules (domain / path /
-    /// secure / unexpired), so the caller hashing this into SAPISIDHASH gets
-    /// exactly the value the server will see on the wire.
+    /// reqwest が `request_url` 向けのリクエストで実際に送る cookie `name` の値を返す。
+    /// jar の request-matching ルール (domain / path / secure / 期限) を通すので、
+    /// SAPISIDHASH の計算元として使えば server が wire 上で見る値と完全一致する。
     pub fn cookie_value_for(&self, request_url: &reqwest::Url, name: &str) -> Option<String> {
         let store = self.cookies.lock().ok()?;
         let value = store
@@ -130,12 +129,10 @@ fn set_file_mode_0600(_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Build an absolute URL from a path (`/account` → `https://moocs.iniad.org/account`).
 pub fn moocs_url(path: &str) -> String {
     format!("{MOOCS_BASE}{path}")
 }
 
-/// Best-effort: returns the cookie file path string if it exists.
 pub fn cookie_path_repr(paths: &Paths) -> PathBuf {
     paths.cookies_file()
 }

@@ -1,6 +1,6 @@
-//! Small helpers for HTML scraping.
+//! HTML scraping 用の小さなヘルパー群。
 //!
-//! Adapted from moocs-collect `src/utils.rs:4-22` (MIT, Copyright 2024 Yuki Natori).
+//! moocs-collect `src/utils.rs:4-22` (MIT, Copyright 2024 Yuki Natori) より転用。
 
 use scraper::{ElementRef, Selector};
 
@@ -10,7 +10,6 @@ pub fn parse_selector(query: &str) -> Result<Selector> {
     Selector::parse(query).map_err(|e| ImoocsError::Parse(format!("invalid selector `{query}`: {e}")))
 }
 
-/// Extract the first element matched by `query` below `elm`, returning the value of `attribute`.
 pub fn extract_element_attribute(elm: &ElementRef<'_>, query: &str, attribute: &str) -> Result<String> {
     let selector = parse_selector(query)?;
     elm.select(&selector)

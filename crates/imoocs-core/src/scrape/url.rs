@@ -1,6 +1,6 @@
-//! Parse and build MOOCs URLs.
+//! MOOCs URL の parse と組み立て。
 //!
-//! URL patterns:
+//! URL パターン:
 //!   `/courses`
 //!   `/courses/<year>`
 //!   `/courses/<year>/<courseId>`

@@ -1,6 +1,6 @@
-//! Domain types for imoocs — serde + schemars.
+//! imoocs の domain 型定義 — serde + schemars。
 //!
-//! JSON keys are `camelCase` by convention (see plan §Output Schema).
+//! JSON のキーは慣習として `camelCase`。詳細は plan §Output Schema を参照。
 
 use std::path::PathBuf;
 
@@ -28,7 +28,7 @@ pub struct Lesson {
     pub pages: Vec<Page>,
 }
 
-/// Lightweight lesson reference used by `course show` where page enumeration is not performed.
+/// ページを列挙しない `course show` 用の軽量 lesson 参照。
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LessonRef {
@@ -37,12 +37,12 @@ pub struct LessonRef {
     pub lesson_id: String,
     pub title: String,
     pub url: String,
-    /// Optional chapter/section heading the lesson belongs to (from sidebar grouping).
+    /// この lesson が属する章 / section 見出し (sidebar の grouping から取得)。省略可。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section: Option<String>,
 }
 
-/// Section grouping in the course sidebar (moocs-collect の LectureGroup 相当)。
+/// コースの sidebar 上の section grouping (moocs-collect の LectureGroup 相当)。
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LectureGroup {
@@ -55,7 +55,7 @@ pub struct LectureGroup {
 pub struct CourseDetail {
     pub course: Course,
     pub lessons: Vec<LessonRef>,
-    /// Same lessons organised by sidebar section heading (章立て)。
+    /// `lessons` と同じ lesson 群を sidebar の section (章立て) でグルーピングしたもの。
     pub groups: Vec<LectureGroup>,
 }
 
@@ -78,8 +78,8 @@ pub struct LessonContent {
     pub title: String,
     pub markdown: String,
     pub embeds: Vec<Embed>,
-    /// Problem IDs found on this page (from `.problem-container[data-problem]`).
-    /// Empty for pages without assignments.
+    /// このページ上で検出した Problem ID 列 (`.problem-container[data-problem]` から取得)。
+    /// 課題のないページでは空配列になる。
     #[serde(default)]
     pub assignments: Vec<String>,
 }
@@ -180,7 +180,6 @@ pub struct DriveFolderListing {
     pub fetched_at: String,
 }
 
-/// `imoocs drive fetch` の envelope data。
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DriveFileFetchResult {
@@ -230,7 +229,6 @@ pub struct AssignmentSummary {
     pub problem_id: String,
     pub page_id: String,
     pub status: AssignmentStatus,
-    /// Derived filter-friendly status (Pending/Submitted/…)
     pub derived_status: DerivedStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lesson_id: Option<String>,
@@ -245,24 +243,24 @@ pub struct RadioOption {
     pub text: String,
 }
 
-/// Uploaded file metadata attached to a file-type ProblemField.
+/// file 型 ProblemField に添付される、アップロード済みファイルのメタデータ。
 ///
-/// Server-side `/answers` response uses `{filename, filetype, timestamp}` shape
-/// (with `filename` required). We serialize in camelCase for agents and
-/// deserialize from the server keys directly. `downloadUrl` is a derived
-/// convenience field populated by `apply_answers`.
+/// server 側の `/answers` response は `{filename, filetype, timestamp}`
+/// という形状 (filename のみ必須)。agent 向けに camelCase でシリアライズし、
+/// デシリアライズは server key そのままで行う。`downloadUrl` は派生フィールドで、
+/// `apply_answers` が値を埋める。
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadedFile {
-    /// Original filename as recorded by the server.
+    /// server が記録しているオリジナルファイル名。
     pub filename: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filetype: Option<String>,
-    /// Upload Unix timestamp (seconds).
+    /// アップロード時刻 (Unix timestamp、秒単位)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<u64>,
-    /// Derived: `https://moocs.iniad.org/assignments/<y>/<c>/<p>/file/<pid>`.
-    /// Empty when the caller didn't derive it yet.
+    /// 派生フィールド: `https://moocs.iniad.org/assignments/<y>/<c>/<p>/file/<pid>`。
+    /// caller がまだ派生させていない場合は空文字。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub download_url: String,
 }

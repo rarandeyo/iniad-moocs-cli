@@ -9,13 +9,12 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 #[derive(Debug, Default, Clone, Copy, ValueEnum, PartialEq, Eq)]
 #[value(rename_all = "lowercase")]
 pub enum OutputMode {
-    /// Default. Human-facing verbs (`doctor`, `auth *`, `setup`) render a
-    /// human-readable summary. Agent-facing verbs emit a pretty JSON envelope
-    /// regardless of this flag since they carry structured data.
+    /// 既定値。人間向けの verb (`doctor`, `auth *`, `setup`) は読みやすいサマリを、
+    /// agent 向けの verb は構造化データを載せるために常に pretty JSON envelope を出す。
     #[default]
     Text,
-    /// Emit a pretty JSON envelope. Use this in agents / CI to force
-    /// machine-readable output from human-facing verbs too.
+    /// 常に pretty JSON envelope を出す。agent / CI で、人間向け verb にも
+    /// machine-readable な出力を強制したいときに使う。
     Json,
 }
 

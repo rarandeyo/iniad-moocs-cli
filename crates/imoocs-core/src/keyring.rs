@@ -1,6 +1,6 @@
-//! Thin wrapper around the `keyring` crate (v3).
+//! `keyring` crate (v3) の薄いラッパー。
 //!
-//! Service name: `imoocs`. Account: the username.
+//! service name は `imoocs`、account は username。
 
 use keyring::Entry;
 

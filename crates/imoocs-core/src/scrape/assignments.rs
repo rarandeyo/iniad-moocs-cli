@@ -1,7 +1,7 @@
-//! Find assignments on a lesson page by inspecting `.problem-container` elements.
+//! lesson ページから `.problem-container` 要素を見て課題を抽出する。
 //!
-//! Each element carries a `data-urlprefix` like
-//! `/assignments/<year>/<course>/<problemId>` and a `data-problem` id.
+//! 各要素は `data-urlprefix` (`/assignments/<year>/<course>/<problemId>` 形式) と
+//! `data-problem` id を持っている。
 
 use scraper::Html;
 
@@ -9,10 +9,10 @@ use crate::error::Result;
 use crate::schemas::{AssignmentSummary, DerivedStatus, Year};
 use crate::util::html::parse_selector;
 
-/// Scan a single page's HTML and return any assignments present.
+/// 1 ページ分の HTML を走査し、含まれる課題を返す。
 ///
-/// `status` is filled as `AssignmentStatus::NonPublic` for now; the caller
-/// should GET `/status` for each assignment to fill in the real status.
+/// `status` は一旦 `AssignmentStatus::NonPublic` で埋める。caller 側が各課題の
+/// `/status` を GET して本来の status を入れ直すことを想定している。
 pub fn scrape_assignments_on_page(
     html: &str,
     year: Year,

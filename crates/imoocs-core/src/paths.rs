@@ -1,12 +1,12 @@
-//! XDG directory resolution (physically split by purpose — see plan §CLI Design Principles #6).
+//! XDG ディレクトリの解決 (用途別に物理的に分離 — plan §CLI Design Principles #6 参照)。
 //!
-//! - `config` (`$XDG_CONFIG_HOME/imoocs/`): portable, fine to commit to dotfiles.
-//! - `data` (`$XDG_DATA_HOME/imoocs/`): credentials, written with umask 0o077.
-//! - `cache` (`$XDG_CACHE_HOME/imoocs/`): cookies and Drive downloads; safe to delete.
+//! - `config` (`$XDG_CONFIG_HOME/imoocs/`): portable、dotfiles に含めて OK。
+//! - `data` (`$XDG_DATA_HOME/imoocs/`): credential 類、umask 0o077 で書き込む。
+//! - `cache` (`$XDG_CACHE_HOME/imoocs/`): cookie と Drive ダウンロード。削除しても構わない。
 //!
-//! Slide PDFs default to `/tmp/imoocs/slides/` (see `DEFAULT_SLIDES_OUT_DIR`)
-//! but can be redirected via `config.toml [slides] out_dir` or the
-//! `imoocs slide fetch --out-dir` flag. See `resolve_slides_out_dir`.
+//! スライド PDF の既定は `/tmp/imoocs/slides/` (`DEFAULT_SLIDES_OUT_DIR` 参照) だが、
+//! `config.toml [slides] out_dir` または `imoocs slide fetch --out-dir` で
+//! リダイレクト可能。詳細は `resolve_slides_out_dir`。
 
 use std::path::{Path, PathBuf};
 
@@ -16,7 +16,6 @@ use crate::error::{ImoocsError, Result};
 
 const APP_NAME: &str = "imoocs";
 
-/// Default value for `slides.out_dir` when neither config nor CLI flag sets it.
 pub const DEFAULT_SLIDES_OUT_DIR: &str = "tmp";
 
 #[derive(Debug, Clone)]
@@ -45,7 +44,6 @@ impl Paths {
         })
     }
 
-    /// Convenience: `Paths` is `Clone`, this alias makes call sites read nicely.
     pub fn clone_paths(&self) -> Self {
         self.clone()
     }
@@ -70,21 +68,20 @@ impl Paths {
         self.cache_dir.join("drive")
     }
 
-    /// Builder-style override for the slide PDF destination.
     pub fn with_slides_dir(mut self, dir: PathBuf) -> Self {
         self.slides_dir = dir;
         self
     }
 }
 
-/// Resolve a `slides.out_dir` value (from config or CLI) into an absolute path.
+/// `slides.out_dir` の値 (config / CLI 由来) を絶対パスに解決する。
 ///
-/// Accepted values:
+/// 許容する値:
 /// - `"cache"` → `<cache_dir>/slides`
 /// - `"tmp"`   → `/tmp/imoocs/slides`
-/// - any absolute path, used as-is
+/// - 任意の絶対パス (そのまま使う)
 ///
-/// Anything else is a validation error.
+/// それ以外は Validation エラー。
 pub fn resolve_slides_out_dir(value: &str, cache_dir: &Path) -> Result<PathBuf> {
     match value {
         "cache" => Ok(cache_dir.join("slides")),

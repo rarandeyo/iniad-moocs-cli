@@ -1,4 +1,4 @@
-//! HTTP wrappers for `/assignments/<year>/<course>/<problem>/*` endpoints.
+//! `/assignments/<year>/<course>/<problem>/*` endpoint 群の HTTP ラッパー。
 
 use std::collections::HashMap;
 
@@ -168,7 +168,6 @@ pub async fn get_assessment(session: &Session, key: &AssignmentKey) -> Result<As
     })
 }
 
-/// Fetch problem HTML + answers in parallel, build AssignmentDetail.
 pub async fn get_assignment_detail(session: &Session, key: &AssignmentKey, lang: Lang) -> Result<AssignmentDetail> {
     let (status, html, answers) = futures::future::join3(
         get_status(session, key),
@@ -242,9 +241,9 @@ async fn refresh_csrf(session: &Session) -> Result<String> {
     Ok(content)
 }
 
-/// Send a request and return a checked response. HTTP 4xx/5xx are translated
-/// to domain errors (Auth / NotFound / Api / Network) rather than a raw reqwest
-/// error, so CLI exit codes carry the right semantics.
+/// request を送り、check 済みの response を返す。HTTP 4xx/5xx は生の
+/// reqwest エラーではなくドメインエラー (Auth / NotFound / Api / Network) に
+/// 変換するので、CLI の exit code が正しい意味を持つ。
 async fn send_and_check(req: reqwest::RequestBuilder, endpoint_hint: &str) -> Result<reqwest::Response> {
     let resp = req.send().await?;
     let status = resp.status();

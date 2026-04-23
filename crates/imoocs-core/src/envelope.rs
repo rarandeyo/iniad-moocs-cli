@@ -1,10 +1,10 @@
-//! Stable JSON envelope (see plan §CLI Design Principles #4).
+//! 安定 JSON envelope (詳細は plan §CLI Design Principles #4)。
 //!
-//! - Success: `{ "success": true, "data": <T> }`
-//! - Failure: `{ "success": false, "error": { "code", "message", "hint"?, "details"? } }`
+//! - 成功時: `{ "success": true, "data": <T> }`
+//! - 失敗時: `{ "success": false, "error": { "code", "message", "hint"?, "details"? } }`
 //!
-//! Unknown keys are silently ignored when deserializing (forward compatibility).
-//! Existing keys are never removed without a major version bump.
+//! deserialize では未知の key を黙って無視する (forward compatibility)。
+//! 既存の key は major version bump 無しで削除しない。
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,6 @@ where
     Failure { success: FailureFlag, error: ErrorDetail },
 }
 
-/// Marker serialized as the literal `true`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "bool", into = "bool")]
 pub struct SuccessFlag;
@@ -39,7 +38,6 @@ impl From<bool> for SuccessFlag {
     }
 }
 
-/// Marker serialized as the literal `false`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
 #[serde(from = "bool", into = "bool")]
 pub struct FailureFlag;

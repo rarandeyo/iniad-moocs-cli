@@ -1,4 +1,4 @@
-//! High-level HTTP helpers that combine fetch + scrape.
+//! fetch + scrape をまとめて行う高レベル HTTP ヘルパー。
 
 use futures::stream::{self, StreamExt};
 use tracing::debug;
@@ -21,11 +21,11 @@ use crate::scrape::{
 };
 use crate::session::{moocs_url, Session};
 
-/// Discover the "latest" year from `/courses`.
+/// `/courses` から最新 year を解決する。
 ///
-/// `/courses` does not redirect to a year-specific URL for logged-in users —
-/// instead it renders the current year's course list directly. So we pull the
-/// year out of any course card link on the page.
+/// login 済みのユーザに対しては `/courses` は year 付き URL に redirect せず、
+/// 現在 year のコース一覧をそのまま返す。このためページ上の任意のコースカード
+/// リンクから year を抜き出す。
 pub async fn resolve_latest_year(session: &Session) -> Result<Year> {
     let resp = session.client.get(moocs_url("/courses")).send().await?;
     let final_url = resp.url().clone();
@@ -208,10 +208,10 @@ pub async fn get_lesson_with_assignments(
     })
 }
 
-/// Crawl all pages of every lesson in a course, harvesting `.problem-container`
-/// assignments. Fetches `/status` for each one in parallel to fill in status.
+/// コース内の全 lesson の全ページを走査し、`.problem-container` から
+/// 課題を収集する。`/status` を並列で fetch して各課題の status を埋める。
 ///
-/// Concurrency: 4 concurrent page fetches + 4 concurrent status fetches.
+/// 並行度: ページ取得 4、`/status` 取得 4。
 pub async fn list_course_assignments(session: &Session, year: Year, course_id: &str) -> Result<Vec<AssignmentSummary>> {
     ensure_authenticated(session).await?;
     let detail = get_course_detail(session, year, course_id).await?;
@@ -282,9 +282,9 @@ pub async fn list_course_assignments(session: &Session, year: Year, course_id: &
     Ok(list)
 }
 
-/// Fill `status` and `derived_status` on an `AssignmentSummary`.
-/// For `status==open` we additionally GET `/problem` and `/answers` to decide
-/// Pending vs Submitted (all pid filled = Submitted, else Pending).
+/// `AssignmentSummary` の `status` と `derived_status` を埋める。
+/// `status==open` の場合はさらに `/problem` と `/answers` を GET し、
+/// Pending か Submitted かを判定する (全 pid 入力済み = Submitted、それ以外 = Pending)。
 async fn resolve_summary(session: &Session, mut a: AssignmentSummary) -> AssignmentSummary {
     let key = AssignmentKey {
         year: a.year,
@@ -341,8 +341,6 @@ fn is_filled(f: &ProblemField, answers: &std::collections::HashMap<String, crate
     }
 }
 
-/// Optional: fetch full page list for a lesson. Not used in MVP `course show` but
-/// exposed for `lesson show --pages-only` etc. if we want later.
 pub async fn get_lesson_pages(session: &Session, year: Year, course_id: &str, lesson_id: &str) -> Result<Lesson> {
     ensure_authenticated(session).await?;
     let url = url::build_lesson(year, course_id, lesson_id);

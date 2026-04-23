@@ -1,9 +1,8 @@
-//! Scrape a course overview page for its list of lessons (sidebar tree).
+//! コース概要ページから lesson 一覧 (sidebar tree) を scrape する。
 //!
-//! The course page (`/courses/<year>/<courseId>`) contains an `<aside>` with a
-//! `TABLE OF CONTENTS` heading and nested lists where each `<a href>` targets a
-//! lesson URL. Lessons are optionally grouped under a section heading (the
-//! parent `<li>`'s top-level link text).
+//! コースページ (`/courses/<year>/<courseId>`) には `<aside>` に `TABLE OF CONTENTS`
+//! の見出しがあり、ネストしたリストの各 `<a href>` が lesson URL を指す。
+//! lesson は section 見出し (親 `<li>` の先頭 link / text) でグルーピングされることがある。
 
 use std::collections::BTreeMap;
 
@@ -15,7 +14,6 @@ use crate::scrape::url::{self, MoocsPath};
 use crate::session::moocs_url;
 use crate::util::html::parse_selector;
 
-/// Extract lessons for the given (year, course_id) from the course page HTML.
 pub fn scrape_course_lessons(html: &str, year: Year, course_id: &str) -> Result<Vec<LessonRef>> {
     let document = Html::parse_document(html);
     let aside_selector = parse_selector("aside a[href]")?;
@@ -54,8 +52,6 @@ pub fn scrape_course_lessons(html: &str, year: Year, course_id: &str) -> Result<
     Ok(seen.into_values().collect())
 }
 
-/// Walk up the DOM to find the closest section heading (from the parent `<li>`'s
-/// top-level link/text). Returns `None` if not found.
 fn find_section(el: &ElementRef<'_>) -> Option<String> {
     let mut node = el.parent();
     // DOM を数階層遡り、直下に <a>/<span> (section ラベル) を持つ <li> を探す。

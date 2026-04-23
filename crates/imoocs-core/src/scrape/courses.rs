@@ -11,7 +11,6 @@ use crate::scrape::url::{self, MoocsPath};
 use crate::session::moocs_url;
 use crate::util::html::{extract_element_attribute, parse_selector};
 
-/// Extract courses from the HTML of `/courses[/<year>]`.
 pub fn scrape_course_list(html: &str) -> Result<Vec<Course>> {
     let document = Html::parse_document(html);
     let card_selector = parse_selector(".content .media")?;
@@ -54,7 +53,6 @@ fn absolutize(href: &str) -> String {
     }
 }
 
-/// Scrape available archive years from the sidebar (from `/courses` response).
 pub fn scrape_archive_years(html: &str) -> Result<Vec<Year>> {
     let document = Html::parse_document(html);
     let treeview_selector = parse_selector(".treeview-menu li a")?;

@@ -1,6 +1,6 @@
-//! Enumerate the pages of a single lesson from the bottom `ul.pagination`.
+//! 下部の `ul.pagination` から単一 lesson のページ群を列挙する。
 //!
-//! Adapted from moocs-collect `src/repository/page.rs:53-100` (MIT, Copyright 2024 Yuki Natori).
+//! moocs-collect `src/repository/page.rs:53-100` (MIT, Copyright 2024 Yuki Natori) より転用。
 
 use scraper::{ElementRef, Html};
 
@@ -10,11 +10,11 @@ use crate::scrape::url::{self, MoocsPath};
 use crate::session::moocs_url;
 use crate::util::html::{extract_element_attribute, parse_selector};
 
-/// Parse the list of pages for the given lesson.
+/// 指定 lesson のページ一覧を parse する。
 ///
-/// - `html`: response body of `/courses/<year>/<course>/<lesson>[/<page>]`
-/// - `current_url`: final URL after redirects (MOOCs redirects bare lesson
-///   URLs to a specific page; we need this to resolve `href="#"` entries)
+/// - `html`: `/courses/<year>/<course>/<lesson>[/<page>]` のレスポンス body
+/// - `current_url`: redirect 後の最終 URL (MOOCs は bare な lesson URL を
+///   特定ページへ redirect するため、`href="#"` のエントリ解決に必要)
 pub fn scrape_lesson_pages(
     html: &str,
     current_url: &str,

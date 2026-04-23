@@ -1,4 +1,4 @@
-//! Scrape the main content of a lesson page: markdown body + embedded iframes.
+//! lesson ページの本文 (markdown + 埋め込み iframe) を scrape する。
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -27,12 +27,12 @@ pub struct LessonContentRaw {
     pub markdown: String,
     pub embeds: Vec<Embed>,
     pub has_problem: bool,
-    /// Problem IDs found via `.problem-container[data-problem]`.
+    /// `.problem-container[data-problem]` から検出した Problem ID 列。
     pub assignments: Vec<String>,
 }
 
-/// Extract a lesson page's human-visible title, markdown body, iframe embeds,
-/// and whether a `.problem-container` is present.
+/// lesson ページから、人間が見る title / markdown 本文 / iframe 埋め込み、
+/// および `.problem-container` の有無を抽出する。
 pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
     let doc = Html::parse_document(html);
 
@@ -125,8 +125,8 @@ pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
     })
 }
 
-/// Very small HTML → Markdown reducer for the `.markdown-block` author-authored
-/// snippets used on INIAD MOOCs. Not a general Markdown renderer.
+/// INIAD MOOCs で使われる `.markdown-block` の著者記述スニペット専用の
+/// 最小限の HTML → Markdown 変換器。汎用 Markdown renderer ではない。
 fn crude_markdown_from_element(el: &ElementRef<'_>) -> String {
     let mut out = String::new();
     render_node(*el, &mut out);
