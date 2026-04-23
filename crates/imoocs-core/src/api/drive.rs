@@ -27,7 +27,8 @@ use std::time::{Duration, SystemTime};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::StatusCode;
-use serde_json::Value;
+use serde::Deserialize;
+use sha1::{Digest, Sha1};
 use tracing::{debug, info, warn};
 
 use crate::auth::is_logged_in_google;
@@ -37,16 +38,18 @@ use crate::schemas::{DriveFileFetchResult, DriveFolderListing, DriveItem, DriveK
 use crate::session::Session;
 
 const DRIVE_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
-const FOLDER_PAGE_HINT_SIZE: usize = 50;
 const NATIVE_MIME_PREFIX: &str = "application/vnd.google-apps.";
 const DRIVE_FILE_FETCH_URL: &str = "https://drive.usercontent.google.com/download?id={id}&export=download&confirm=t";
 
-/// Matches `window['_DRIVE_ivd'] = '<payload>';` (single-quoted, `\x??` hex-escaped).
-static IVD_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"window\[['"]_DRIVE_ivd['"]\]\s*=\s*'((?:[^'\\]|\\.)*)'"#).unwrap());
-
-/// Matches `\xHH` escape sequences used in the IVD payload.
-static HEX_ESCAPE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\\x([0-9a-fA-F]{2})").unwrap());
+/// Drive Web UI が叩く非公式 XHR endpoint。`drive.google.com/drive/v2beta/files`
+/// は 404、`content.googleapis.com` は OAuth 必須 (spike 済)。clients6 だけが通る。
+const DRIVE_XHR_ENDPOINT: &str = "https://clients6.google.com/drive/v2beta/files";
+const DRIVE_XHR_ORIGIN: &str = "https://drive.google.com";
+/// Drive Web UI HTML に埋め込まれた公開 API key (secret ではなく app 識別子)。
+/// rotate されたら 403 "unregistered callers" で検知できる。
+const DRIVE_XHR_API_KEY: &str = "AIzaSyD_InbmSFufIEps5UAt2NmB_3LvBH3Sz_8";
+const DRIVE_XHR_PAGE_SIZE: usize = 1000;
+const DRIVE_XHR_MAX_PAGES: usize = 100;
 
 /// Matches `filename="..."` in a `Content-Disposition` header.
 static CONTENT_DISPOSITION_FILENAME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"filename\s*=\s*"([^"]+)""#).unwrap());
@@ -101,10 +104,119 @@ fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+// ---------- SAPISIDHASH auth + XHR pagination ----------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DriveXhrPage {
+    #[serde(default)]
+    next_page_token: Option<String>,
+    #[serde(default)]
+    items: Vec<DriveXhrItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DriveXhrItem {
+    id: String,
+    title: String,
+    mime_type: String,
+    #[serde(default)]
+    modified_date: Option<String>,
+}
+
+impl From<DriveXhrItem> for DriveItem {
+    fn from(raw: DriveXhrItem) -> Self {
+        let kind = if raw.mime_type == "application/vnd.google-apps.folder" {
+            DriveKind::Folder
+        } else {
+            DriveKind::File
+        };
+        DriveItem {
+            id: raw.id,
+            name: raw.title,
+            mime: raw.mime_type,
+            kind,
+            modified_at: raw.modified_date,
+        }
+    }
+}
+
+/// `{ts}_{hex_sha1("{ts} {sapisid} {origin}")}`. Google Web UI 共通の非公式 scheme。
+fn sapisid_hash(ts: u64, sapisid: &str, origin: &str) -> String {
+    let mut h = Sha1::new();
+    h.update(format!("{ts} {sapisid} {origin}"));
+    format!("{ts}_{}", hex::encode(h.finalize()))
+}
+
+fn build_drive_authorization(session: &Session, request_url: &reqwest::Url) -> Result<String> {
+    let sapisid = session
+        .cookie_value_for(request_url, "SAPISID")
+        .ok_or_else(|| ImoocsError::Auth {
+            reason: "SAPISID cookie absent for Drive XHR URL; Google SAML session incomplete or expired".into(),
+            hint: Some("run `imoocs auth login-google`".into()),
+        })?;
+    let ts = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    Ok(format!("SAPISIDHASH {}", sapisid_hash(ts, &sapisid, DRIVE_XHR_ORIGIN)))
+}
+
+/// XHR 固有の status → エラー分類。403 は body の Google error message を見て、
+/// "unregistered callers" / "API key" 系なら API key rotation / endpoint drift として
+/// `ImoocsError::Api` に昇格させる。それ以外の 403 は従来通り Auth。
+fn classify_xhr_error(status: StatusCode, body: &str, what: &str) -> ImoocsError {
+    let err_msg = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default();
+    match status.as_u16() {
+        403 if err_msg.contains("unregistered callers")
+            || err_msg.contains("API key not valid")
+            || err_msg.contains("API consumer identity") =>
+        {
+            ImoocsError::Api(format!(
+                "Drive XHR rejected our API key at {what}: {err_msg}. \
+                 Endpoint/key may have rotated upstream (see docs/DESIGN.md §4.11)."
+            ))
+        }
+        401 | 403 => ImoocsError::Auth {
+            reason: format!("access denied to {what}: {err_msg}"),
+            hint: Some("make sure the INIAD account you logged in with has access to this resource".into()),
+        },
+        404 => ImoocsError::NotFound { what: what.to_string() },
+        s if (500..600).contains(&s) => ImoocsError::Api(format!("{what} returned {s}: {err_msg}")),
+        other => ImoocsError::Api(format!("unexpected status {other} from {what}: {err_msg}")),
+    }
+}
+
+fn parse_xhr_page(body: &str) -> Result<(Vec<DriveItem>, Option<String>)> {
+    let page: DriveXhrPage = serde_json::from_str(body).map_err(|e| {
+        ImoocsError::Parse(format!(
+            "drive v2beta: JSON shape changed upstream ({e}). Drive XHR endpoint may have changed."
+        ))
+    })?;
+    let items = page.items.into_iter().map(DriveItem::from).collect();
+    Ok((items, page.next_page_token))
+}
+
 // ---------- Folder listing ----------
 
-/// List items in a Drive folder by scraping the rendered-HTML `_DRIVE_ivd` blob.
 pub async fn list_drive_folder(session: &Session, folder_id: &str) -> Result<DriveFolderListing> {
+    list_drive_folder_at(session, folder_id, DRIVE_XHR_ENDPOINT).await
+}
+
+async fn list_drive_folder_at(
+    session: &Session,
+    folder_id: &str,
+    endpoint: &str,
+) -> Result<DriveFolderListing> {
     validate_drive_id(folder_id)?;
     if !is_logged_in_google(session).await? {
         return Err(ImoocsError::Auth {
@@ -112,127 +224,83 @@ pub async fn list_drive_folder(session: &Session, folder_id: &str) -> Result<Dri
             hint: Some("run `imoocs auth login-google`".into()),
         });
     }
-
-    let url = format!("https://drive.google.com/drive/folders/{folder_id}");
-    info!(%url, "fetching Drive folder HTML");
-    let resp = session.client.get(&url).send().await?;
-    let final_url = resp.url().clone();
-    if final_url.host_str() == Some("accounts.google.com") {
-        return Err(ImoocsError::Auth {
-            reason: "redirected to Google sign-in; SAML session expired".into(),
-            hint: Some("run `imoocs auth login-google`".into()),
-        });
-    }
-    classify_drive_status(resp.status(), &format!("drive folder {folder_id}"))?;
-
-    let body = resp.text().await?;
-    // Defensive: if we got 200 but the body smells like a Google sign-in page,
-    // treat it as an auth failure instead of a parse error.
-    if looks_like_google_login(&body) {
-        return Err(ImoocsError::Auth {
-            reason: "Drive folder returned Google sign-in HTML; SAML session may have expired".into(),
-            hint: Some("run `imoocs auth login-google`".into()),
-        });
-    }
-    let items = parse_ivd(&body)?;
-    let truncated = items.len() >= FOLDER_PAGE_HINT_SIZE;
+    let endpoint_url: reqwest::Url = endpoint
+        .parse()
+        .map_err(|e| ImoocsError::Validation(format!("invalid Drive XHR endpoint URL {endpoint:?}: {e}")))?;
+    let auth = build_drive_authorization(session, &endpoint_url)?;
+    let items = fetch_all_pages(&session.client, endpoint, &auth, folder_id).await?;
     Ok(DriveFolderListing {
         folder_id: folder_id.to_string(),
         items,
-        truncated,
+        // envelope back-compat (DESIGN §5); XHR pagination は常に全件取得する。
+        truncated: false,
         fetched_at: now_rfc3339(),
     })
 }
 
-fn looks_like_google_login(body: &str) -> bool {
-    let head = &body[..body.len().min(4096)].to_ascii_lowercase();
-    head.contains("accounts.google.com/servicelogin") || head.contains("accounts.google.com/v3/signin")
-}
-
-/// Extract items from the `window['_DRIVE_ivd']` payload embedded in a Drive
-/// folder HTML page.
-///
-/// Pure function (no I/O) so it is fixture-testable. See the positional shape
-/// documented in the plan §(b): `[0]=id, [1]=[parentId], [2]=name, [3]=mime, [9]=modifiedMs`.
-pub fn parse_ivd(html: &str) -> Result<Vec<DriveItem>> {
-    let caps = IVD_RE
-        .captures(html)
-        .ok_or_else(|| ImoocsError::Parse("no window['_DRIVE_ivd'] payload in folder HTML".into()))?;
-    let escaped = &caps[1];
-    let decoded = unescape_ivd(escaped);
-    let value: Value =
-        serde_json::from_str(&decoded).map_err(|e| ImoocsError::Parse(format!("_DRIVE_ivd JSON parse failed: {e}")))?;
-
-    let outer = value
-        .as_array()
-        .ok_or_else(|| ImoocsError::Parse("_DRIVE_ivd: expected top-level array".into()))?;
-    let items_arr = outer
-        .first()
-        .and_then(Value::as_array)
-        .ok_or_else(|| ImoocsError::Parse("_DRIVE_ivd: expected items at [0]".into()))?;
-
-    let mut items = Vec::with_capacity(items_arr.len());
-    for (idx, raw) in items_arr.iter().enumerate() {
-        match parse_item(raw) {
-            Some(it) => items.push(it),
-            None => warn!(idx, "skipping _DRIVE_ivd item with unexpected positional shape"),
+async fn fetch_all_pages(
+    client: &reqwest::Client,
+    endpoint: &str,
+    auth: &str,
+    folder_id: &str,
+) -> Result<Vec<DriveItem>> {
+    let mut all = Vec::<DriveItem>::new();
+    let mut page_token: Option<String> = None;
+    for iter in 0..DRIVE_XHR_MAX_PAGES {
+        let mut query: Vec<(&str, String)> = vec![
+            ("q", format!("'{folder_id}' in parents")),
+            ("pageSize", DRIVE_XHR_PAGE_SIZE.to_string()),
+            (
+                "fields",
+                "nextPageToken,items(id,title,mimeType,modifiedDate)".to_string(),
+            ),
+            ("supportsAllDrives", "true".to_string()),
+            ("includeItemsFromAllDrives", "true".to_string()),
+            ("key", DRIVE_XHR_API_KEY.to_string()),
+        ];
+        if let Some(t) = &page_token {
+            query.push(("pageToken", t.clone()));
+        }
+        info!(%endpoint, %folder_id, iter, "fetching Drive XHR page");
+        let resp = client
+            .get(endpoint)
+            .query(&query)
+            .header(reqwest::header::AUTHORIZATION, auth)
+            .header("X-Origin", DRIVE_XHR_ORIGIN)
+            .header(reqwest::header::REFERER, "https://drive.google.com/")
+            .send()
+            .await?;
+        let final_url = resp.url().clone();
+        if final_url.host_str() == Some("accounts.google.com") {
+            return Err(ImoocsError::Auth {
+                reason: "Drive XHR redirected to Google sign-in; SAML session expired".into(),
+                hint: Some("run `imoocs auth login-google`".into()),
+            });
+        }
+        let status = resp.status();
+        let body = resp.text().await?;
+        if !status.is_success() {
+            return Err(classify_xhr_error(
+                status,
+                &body,
+                &format!("drive folder {folder_id} (page {iter})"),
+            ));
+        }
+        let (page_items, next) = parse_xhr_page(&body)?;
+        debug!(iter, count = page_items.len(), "drive xhr page received");
+        all.extend(page_items);
+        match next {
+            Some(t) => {
+                page_token = Some(t);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            None => return Ok(all),
         }
     }
-    // If the payload had items but none parsed, the positional shape has
-    // probably changed server-side. Surfacing a Parse error is better than
-    // silently returning an empty listing that an agent would read as
-    // "folder is empty".
-    if !items_arr.is_empty() && items.is_empty() {
-        return Err(ImoocsError::Parse(
-            "_DRIVE_ivd items all failed to parse; Drive payload shape may have changed".into(),
-        ));
-    }
-    Ok(items)
-}
-
-fn parse_item(raw: &Value) -> Option<DriveItem> {
-    let arr = raw.as_array()?;
-    let id = arr.first()?.as_str()?.to_string();
-    // arr[1] = [parentFolderId], unused for now.
-    let name = arr.get(2)?.as_str()?.to_string();
-    let mime = arr.get(3)?.as_str()?.to_string();
-    let modified_at = arr.get(9).and_then(Value::as_i64).map(ms_to_rfc3339);
-    let kind = if mime == "application/vnd.google-apps.folder" {
-        DriveKind::Folder
-    } else {
-        DriveKind::File
-    };
-    Some(DriveItem {
-        id,
-        name,
-        mime,
-        kind,
-        modified_at,
-    })
-}
-
-fn unescape_ivd(payload: &str) -> String {
-    let hex_resolved = HEX_ESCAPE_RE.replace_all(payload, |caps: &regex::Captures<'_>| {
-        let h = &caps[1];
-        u32::from_str_radix(h, 16)
-            .ok()
-            .and_then(char::from_u32)
-            .map(|c| c.to_string())
-            .unwrap_or_default()
-    });
-    hex_resolved.replace("\\/", "/")
-}
-
-fn ms_to_rfc3339(ms: i64) -> String {
-    let secs = ms / 1000;
-    let nanos = ((ms % 1000) * 1_000_000) as i128;
-    let total_ns = (secs as i128) * 1_000_000_000 + nanos;
-    match time::OffsetDateTime::from_unix_timestamp_nanos(total_ns) {
-        Ok(dt) => dt
-            .format(&time::format_description::well_known::Rfc3339)
-            .unwrap_or_default(),
-        Err(_) => String::new(),
-    }
+    Err(ImoocsError::Api(format!(
+        "drive folder listing hit safety cap ({} pages) without terminating; Drive XHR endpoint may have changed",
+        DRIVE_XHR_MAX_PAGES
+    )))
 }
 
 // ---------- Single file download ----------
@@ -546,54 +614,6 @@ fn _ensure_path_type(_p: &Path) {}
 mod tests {
     use super::*;
 
-    const FIXTURE: &str = include_str!("../../tests/fixtures/drive_folder_sample.html");
-
-    #[test]
-    fn parse_ivd_extracts_fixture_items() {
-        let items = parse_ivd(FIXTURE).expect("parse_ivd");
-        assert_eq!(items.len(), 4, "synthetic fixture should have 4 items");
-        let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
-        assert!(names.contains(&"sample-a.html"));
-        assert!(names.contains(&"sample-b.pdf"));
-        assert!(names.contains(&"sample-c.pdf"));
-        assert!(names.contains(&"sample-d.zip"));
-
-        let zip = items
-            .iter()
-            .find(|i| i.name == "sample-d.zip")
-            .expect("find sample-d.zip");
-        assert_eq!(zip.id, "FIXTURE_FILE_04_ZIP_________________");
-        assert_eq!(zip.mime, "application/x-zip-compressed");
-        assert_eq!(zip.kind, DriveKind::File);
-        assert!(zip.modified_at.is_some());
-    }
-
-    #[test]
-    fn parse_ivd_errors_when_payload_absent() {
-        let html = "<html><body>no ivd here</body></html>";
-        assert!(parse_ivd(html).is_err());
-    }
-
-    #[test]
-    fn folder_mime_maps_to_folder_kind() {
-        let raw = serde_json::json!([
-            "FOLDER_ID",
-            ["PARENT"],
-            "subdir",
-            "application/vnd.google-apps.folder",
-            0,
-            null,
-            0,
-            0,
-            0,
-            1_700_000_000_000_i64
-        ]);
-        let item = parse_item(&raw).expect("parse_item");
-        assert_eq!(item.kind, DriveKind::Folder);
-        assert_eq!(item.name, "subdir");
-        assert_eq!(item.id, "FOLDER_ID");
-    }
-
     #[test]
     fn extract_filename_basic() {
         assert_eq!(
@@ -608,13 +628,6 @@ mod tests {
         assert_eq!(extension_from("ai-01.zip", None).as_deref(), Some("zip"));
         assert_eq!(extension_from("weird", Some("application/pdf")).as_deref(), Some("pdf"));
         assert_eq!(extension_from("noext", None), None);
-    }
-
-    #[test]
-    fn unescape_ivd_decodes_hex_and_slash() {
-        let input = r"\x5b\x221ABC\x22,\x22\/path\x22\x5d";
-        let out = unescape_ivd(input);
-        assert_eq!(out, r#"["1ABC","/path"]"#);
     }
 
     #[test]
@@ -644,27 +657,151 @@ mod tests {
         }
     }
 
+    const XHR_PAGE1_FIXTURE: &str = include_str!("../../tests/fixtures/drive_xhr_page1.json");
+    const XHR_PAGE2_FIXTURE: &str = include_str!("../../tests/fixtures/drive_xhr_page2_last.json");
+
     #[test]
-    fn parse_ivd_shape_change_surfaces_parse_error() {
-        // items array is non-empty but each item is a string (not the expected
-        // positional array). parse_item returns None for all items.
-        let synthetic_payload = r"\x5b\x5b\x22not-an-item\x22\x5d\x5d";
-        let html = format!("<html><body><script>window['_DRIVE_ivd'] = '{synthetic_payload}';</script></body></html>");
-        let err = parse_ivd(&html).unwrap_err();
+    fn sapisid_hash_known_answer() {
+        let got = sapisid_hash(1_000_000_000, "SAMPLE_SAPISID", "https://drive.google.com");
+        assert_eq!(got, "1000000000_f8e785b009b005421a7e7e2a5a40c6db42a37ac9");
+    }
+
+    #[test]
+    fn parse_xhr_page1_returns_items_and_next_token() {
+        let (items, next) = parse_xhr_page(XHR_PAGE1_FIXTURE).expect("page1 parse");
+        assert_eq!(items.len(), 3);
+        assert_eq!(next.as_deref(), Some("FIXTURE_TOKEN_PAGE_2"));
+        assert_eq!(items[0].name, "AI-01");
+        assert_eq!(items[0].kind, DriveKind::Folder);
+        assert_eq!(items[0].mime, "application/vnd.google-apps.folder");
+        assert_eq!(items[1].name, "handout.pdf");
+        assert_eq!(items[1].kind, DriveKind::File);
+        assert_eq!(items[1].mime, "application/pdf");
+        assert_eq!(items[2].modified_at.as_deref(), Some("2026-04-03T12:00:00.000Z"));
+    }
+
+    #[test]
+    fn parse_xhr_page2_terminates_without_next_token() {
+        let (items, next) = parse_xhr_page(XHR_PAGE2_FIXTURE).expect("page2 parse");
+        assert_eq!(items.len(), 2);
+        assert!(next.is_none(), "last page should have no nextPageToken");
+        assert_eq!(items[0].name, "notes.txt");
+        assert!(items[0].modified_at.is_none());
+        assert_eq!(items[1].name, "sub-folder");
+        assert_eq!(items[1].kind, DriveKind::Folder);
+    }
+
+    #[test]
+    fn parse_xhr_page_error_on_shape_change() {
+        let bad = r#"{"items": ["not an object"], "nextPageToken": null}"#;
+        let err = parse_xhr_page(bad).unwrap_err();
         match err {
-            ImoocsError::Parse(msg) => {
-                assert!(msg.contains("all failed to parse"), "msg was {msg:?}");
-            }
+            ImoocsError::Parse(m) => assert!(m.contains("Drive XHR endpoint may have changed"), "got {m:?}"),
             other => panic!("expected Parse error, got {other:?}"),
         }
     }
 
     #[test]
-    fn parse_ivd_empty_items_is_still_ok() {
-        let empty_payload = r"\x5b\x5b\x5d\x5d";
-        let html = format!("<html><body><script>window['_DRIVE_ivd'] = '{empty_payload}';</script></body></html>");
-        let items = parse_ivd(&html).expect("empty folder should parse");
-        assert_eq!(items.len(), 0);
+    fn classify_xhr_error_unregistered_caller_maps_to_api() {
+        let body = r#"{"error":{"code":403,"message":"Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API."}}"#;
+        let err = classify_xhr_error(StatusCode::FORBIDDEN, body, "test folder");
+        match err {
+            ImoocsError::Api(m) => {
+                assert!(m.contains("rejected our API key"), "got {m:?}");
+                assert!(m.contains("rotated upstream"), "should hint at regression, got {m:?}");
+            }
+            other => panic!("expected Api error (API-key regression), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_xhr_error_permission_denied_maps_to_auth() {
+        let body = r#"{"error":{"code":403,"message":"The caller does not have permission"}}"#;
+        let err = classify_xhr_error(StatusCode::FORBIDDEN, body, "test folder");
+        assert!(matches!(err, ImoocsError::Auth { .. }), "expected Auth error, got {err:?}");
+    }
+
+    #[test]
+    fn classify_xhr_error_404_maps_to_not_found() {
+        let body = r#"{"error":{"code":404,"message":"File not found"}}"#;
+        let err = classify_xhr_error(StatusCode::NOT_FOUND, body, "test folder");
+        assert!(matches!(err, ImoocsError::NotFound { .. }), "got {err:?}");
+    }
+
+    /// page2 の mock は `pageToken=FIXTURE_TOKEN_PAGE_2` 限定で matching するので、
+    /// loop が token を次 URL に連結できていないと 5 件揃わず test が落ちる。
+    #[tokio::test]
+    async fn fetch_all_pages_chains_page_tokens() {
+        let mut server = mockito::Server::new_async().await;
+        let page1_mock = server
+            .mock("GET", "/drive/v2beta/files")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "q".into(),
+                "'FIXTURE_FOLDER' in parents".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json; charset=UTF-8")
+            .with_body(XHR_PAGE1_FIXTURE)
+            .expect(1)
+            .create_async()
+            .await;
+        let page2_mock = server
+            .mock("GET", "/drive/v2beta/files")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "pageToken".into(),
+                "FIXTURE_TOKEN_PAGE_2".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json; charset=UTF-8")
+            .with_body(XHR_PAGE2_FIXTURE)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let endpoint = format!("{}/drive/v2beta/files", server.url());
+        let client = reqwest::Client::new();
+        let items = fetch_all_pages(&client, &endpoint, "SAPISIDHASH fake", "FIXTURE_FOLDER")
+            .await
+            .expect("fetch_all_pages should succeed");
+
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0].name, "AI-01");
+        assert_eq!(items[3].name, "notes.txt");
+        assert_eq!(items[4].name, "sub-folder");
+
+        page1_mock.assert_async().await;
+        page2_mock.assert_async().await;
+    }
+
+    /// HTTP 403 + Google "unregistered callers" body が Api error として surfacing される
+    /// (auth 切れと混同しない)。
+    #[tokio::test]
+    async fn fetch_all_pages_surfaces_api_key_regression() {
+        let mut server = mockito::Server::new_async().await;
+        let body = r#"{"error":{"code":403,"message":"Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API."}}"#;
+        let m = server
+            .mock("GET", "/drive/v2beta/files")
+            .match_query(mockito::Matcher::UrlEncoded(
+                "q".into(),
+                "'FIXTURE_FOLDER' in parents".into(),
+            ))
+            .with_status(403)
+            .with_header("content-type", "application/json; charset=UTF-8")
+            .with_body(body)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let endpoint = format!("{}/drive/v2beta/files", server.url());
+        let client = reqwest::Client::new();
+        let err = fetch_all_pages(&client, &endpoint, "SAPISIDHASH fake", "FIXTURE_FOLDER")
+            .await
+            .unwrap_err();
+        match err {
+            ImoocsError::Api(s) => assert!(s.contains("rejected our API key"), "got {s:?}"),
+            other => panic!("expected Api error, got {other:?}"),
+        }
+        m.assert_async().await;
     }
 
     #[test]

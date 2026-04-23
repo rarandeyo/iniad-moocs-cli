@@ -167,8 +167,10 @@ pub struct DriveItem {
 
 /// `imoocs drive list` の envelope data。
 ///
-/// `truncated == true` は「初期 HTML に 50 件ちょうどで、ページング未対応のため
-/// 後続が切れている可能性」を示す。
+/// `truncated` フィールドは v1.0 の HTML 50 件制限時代の名残で、envelope 後方互換
+/// (DESIGN §5) のため残してある。v1.1~ で XHR pagination (`clients6.google.com/drive/v2beta/files`)
+/// に移行し常に全件取得できるようになったため **常に `false`** を返す。
+/// consumer はこのフィールドを見なくてよい (将来別フラグで予約する可能性のみ残す)。
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DriveFolderListing {

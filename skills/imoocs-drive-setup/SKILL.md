@@ -25,7 +25,7 @@ INIAD MOOCs で履修中のコースと、授業資料が置かれている Goog
 
 1. **履修中コースは `imoocs course list` の結果そのまま**。MOOCs の `/courses/<year>` ページは認証済ユーザの履修コースのみをレンダリングするため、CLI 側でフィルタは不要。返ってきた `Course[]` を全件対象にする。
 2. **Drive ルートは共有の年度別フォルダ**。既定は `https://drive.google.com/drive/folders/FAKE_DRIVE_ROOT_HIST_REDACT0001` (folderId `FAKE_DRIVE_ROOT_HIST_REDACT0001`)。直下に `2024/`, `2025/`, `2026/` 等のサブフォルダがあり、その下に授業フォルダが並ぶ構造を前提とする。ユーザから別ルートの指定があればそちらを優先。
-3. **Drive 操作は `gws-drive` skill に委譲**。Drive API を直接叩いたり URL を手でパースしたりしない。検索・列挙・権限確認は `gws-drive` に任せ、このスキルは MOOCs 側と TOML 書き込みに集中する。
+3. **Drive 操作は `imoocs drive` サブコマンドに集約**。`imoocs drive list <folderId>` / `imoocs drive fetch <fileId>` を使い、Drive API を直接叩いたり URL を手でパースしたりしない。`gws-drive` には委譲しない — MOOCs 側のログイン cookie で解決できる範囲はすべて `imoocs` 内で完結する。
 4. **曖昧なマッチはユーザに判断を仰ぐ**。完全一致が 1 件ならそれを採用、0 件 or 複数なら候補をユーザに提示して決めてもらう。勝手に確定しない。
 5. **冪等に振る舞う**。既存 TOML を読み込み、既に解決済みの行は原則保持。ユーザが手で URL を書き換えている場合もそれを尊重する。
 
@@ -35,7 +35,7 @@ INIAD MOOCs で履修中のコースと、授業資料が置かれている Goog
 
 1. `imoocs --version` が通る (未インストールならインストール案内)。
 2. `imoocs auth status` → exit 0 (MOOCs 認証済)。exit 2 なら `imoocs auth login` を先に案内して中断。
-3. Google Drive に触れること。`imoocs auth login-google` が済んでいる前提に加え、Claude 側で `gws-drive` skill が OAuth 済で叩ける状態。未認証ならここで初回 OAuth フローに付き合う。
+3. Google Drive に触れること。`imoocs auth login-google` が済んでいる状態で `imoocs drive list <anyFolderId>` が exit 0 / `success: true` で返れば OK。exit 2 なら `imoocs auth login-google` を案内。`gws-drive` 側の OAuth は **このスキルでは不要**。
 4. 保存先ディレクトリを決定する。`$XDG_CONFIG_HOME` があればそこ、無ければ `$HOME/.config`。最終的な書き込み先は `$XDG_CONFIG_HOME/imoocs/course-drive-folders.toml`。
 
 前提が揃っていないなら、この時点で中断してユーザに案内する。先に進まない。
@@ -65,16 +65,26 @@ test -f "${XDG_CONFIG_HOME:-$HOME/.config}/imoocs/course-drive-folders.toml" \
 
 ### Step 3. Drive ルートから年度サブフォルダを特定
 
-`gws-drive` skill を呼び、次のことを頼む:
+```sh
+imoocs drive list FAKE_DRIVE_ROOT_HIST_REDACT0001
+```
 
-- 親フォルダ ID `FAKE_DRIVE_ROOT_HIST_REDACT0001` (ユーザ指定があればそのフォルダ) の直下から、**名前が対象年度 (`2026` など) に一致** する Drive フォルダを取得する。
+(ユーザ指定のルートがあればその folderId に差し替え)。返ってきた `data.items[]` から次を満たすものを `yearFolderId` として採用する:
+
+- `kind == "folder"` (すなわち `mime == "application/vnd.google-apps.folder"`)
+- `name` が対象年度 (`"2026"` 等) と一致
+
+分岐:
+
 - 1 件ヒット → 採用して `yearFolderId` を保持。
 - 0 件 → 「この年度用のフォルダが Drive に見当たりません。ルートを変更しますか」とユーザに確認。
 - 複数ヒット → 候補を提示して選んでもらう。
 
+v1.1 以降 `imoocs drive list` は `nextPageToken` で全件取得する (XHR pagination。`docs/DESIGN.md §4.11`) ため、旧来の 50 件 truncate を考慮する必要はない。`truncated` フィールドは後方互換で残るが常に `false`。
+
 ### Step 4. 年度サブフォルダ配下をコースと突き合わせる
 
-1. `gws-drive` 経由で `yearFolderId` 配下の**フォルダ一覧**を取得 (ファイルは無視)。
+1. `imoocs drive list <yearFolderId>` を叩き、返った `data.items[]` から `kind == "folder"` のものだけ残す (ファイルは無視)。v1.1 以降 XHR pagination で全件取得されるため 50 件打ち切りは発生しない。
 2. Step 1 で得た各 `Course.name` について、以下の優先度でマッチ:
 
    | 優先度 | 条件 | `matchStrategy` |
@@ -153,7 +163,8 @@ matchStrategy = "unresolved"
 |------|------|
 | `imoocs course list` が exit 2 (`AUTH_EXPIRED`) | `imoocs auth login` を案内してから再実行 |
 | `imoocs course list` が exit 6/7 | ネットワーク回復後に再試行 (学外でも通るはず。exit 7 が出るのは限定的) |
-| `gws-drive` skill 未認証 / 権限不足 | 初回 OAuth フローに付き合い、完了後 Step 3 から再開 |
+| `imoocs drive list` が exit 2 | Google SSO セッション切れ。`imoocs auth login-google` を案内して再実行 |
+| `imoocs drive list` が `Parse("Drive XHR endpoint may have changed upstream")` | Google 側で v2beta XHR の shape / endpoint / API key が変わった可能性 (`docs/DESIGN.md §4.11`)。CLI のアップデートを待つか issue 報告 |
 | 年度フォルダが Drive に無い | ルート folderId がユーザ共有ドライブの古い ID の可能性。ユーザに現行ルートを確認 |
 | コースフォルダが 0 件ヒット | その年度のフォルダがまだ Drive に用意されていない。当該コースは `unresolved` で残す |
 
@@ -169,6 +180,5 @@ matchStrategy = "unresolved"
 
 ## 関連
 
-- 既存 [`imoocs`](../imoocs/SKILL.md) skill — 課題提出 / スライド取得 / レッスン閲覧などの実作業はそちら。
-- `gws-drive` skill — Drive の検索・列挙・権限確認はこの skill に委譲する。
-- [`docs/DESIGN.md`](../../docs/DESIGN.md) — `imoocs` CLI 全体の設計。本スキルは CLI に手を入れず、外側で orchestration するだけ。
+- 既存 [`imoocs`](../imoocs/SKILL.md) skill — 課題提出 / スライド取得 / レッスン閲覧などの実作業はそちら。Drive 操作は `imoocs drive list` / `imoocs drive fetch` を使う。
+- [`docs/DESIGN.md`](../../docs/DESIGN.md) §4.11 — Drive scrape の実装解説と 50 件制限の出所。本スキルは CLI に手を入れず、外側で orchestration するだけ。

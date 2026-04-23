@@ -1,0 +1,27 @@
+{
+  "kind": "drive#fileList",
+  "nextPageToken": "FIXTURE_TOKEN_PAGE_2",
+  "items": [
+    {
+      "kind": "drive#file",
+      "id": "FIXTURE_ITEM_01_FOLDER______________",
+      "title": "AI-01",
+      "mimeType": "application/vnd.google-apps.folder",
+      "modifiedDate": "2026-04-01T10:46:12.798Z"
+    },
+    {
+      "kind": "drive#file",
+      "id": "FIXTURE_ITEM_02_PDF_________________",
+      "title": "handout.pdf",
+      "mimeType": "application/pdf",
+      "modifiedDate": "2026-04-02T08:15:30.001Z"
+    },
+    {
+      "kind": "drive#file",
+      "id": "FIXTURE_ITEM_03_ZIP_________________",
+      "title": "ai-01.zip",
+      "mimeType": "application/x-zip-compressed",
+      "modifiedDate": "2026-04-03T12:00:00.000Z"
+    }
+  ]
+}

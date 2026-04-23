@@ -73,6 +73,20 @@ impl Session {
     pub async fn set_csrf_token(&self, token: Option<String>) {
         *self.csrf_token.write().await = token;
     }
+
+    /// Return the value a reqwest request to `request_url` would actually send
+    /// for cookie `name`. Uses the jar's request-matching rules (domain / path /
+    /// secure / unexpired), so the caller hashing this into SAPISIDHASH gets
+    /// exactly the value the server will see on the wire.
+    pub fn cookie_value_for(&self, request_url: &reqwest::Url, name: &str) -> Option<String> {
+        let store = self.cookies.lock().ok()?;
+        let value = store
+            .matches(request_url)
+            .into_iter()
+            .find(|c| c.name() == name)
+            .map(|c| c.value().to_string());
+        value
+    }
 }
 
 fn load_cookie_jar(path: &Path) -> Result<Arc<CookieStoreMutex>> {

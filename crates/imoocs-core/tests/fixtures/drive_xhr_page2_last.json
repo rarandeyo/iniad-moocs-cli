@@ -1,0 +1,18 @@
+{
+  "kind": "drive#fileList",
+  "items": [
+    {
+      "kind": "drive#file",
+      "id": "FIXTURE_ITEM_04_NOMTIME_____________",
+      "title": "notes.txt",
+      "mimeType": "text/plain"
+    },
+    {
+      "kind": "drive#file",
+      "id": "FIXTURE_ITEM_05_FOLDER______________",
+      "title": "sub-folder",
+      "mimeType": "application/vnd.google-apps.folder",
+      "modifiedDate": "2026-04-05T00:00:00.000Z"
+    }
+  ]
+}
