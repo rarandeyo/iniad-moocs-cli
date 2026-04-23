@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use reqwest::{header, Method};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::debug;
 
@@ -93,7 +93,6 @@ pub async fn put_answers(
     if !status_code.is_success() {
         return Err(map_http_err(status_code, resp.text().await.ok()));
     }
-    // Re-fetch status for the response envelope.
     let stat = get_status(session, key).await?;
     Ok(AnswerResult {
         ok: true,
@@ -252,7 +251,6 @@ async fn send_and_check(req: reqwest::RequestBuilder, endpoint_hint: &str) -> Re
     if status.is_success() {
         return Ok(resp);
     }
-    // Body preview is best-effort.
     let body = resp.text().await.ok();
     Err(map_http_err_with_context(status, body, endpoint_hint))
 }
@@ -309,7 +307,6 @@ fn map_http_err(status: reqwest::StatusCode, body: Option<String>) -> ImoocsErro
     }
 }
 
-// -------- wire types --------
 #[derive(Deserialize)]
 struct StatusRaw {
     status: String,
@@ -339,10 +336,6 @@ struct AssessmentRaw {
     fullmark: Option<f64>,
     comment: Option<String>,
 }
-
-// Dummy to silence unused warning if Serialize is ever required.
-#[derive(Serialize)]
-struct _Unused;
 
 #[cfg(test)]
 mod tests {

@@ -58,8 +58,6 @@ static CONTENT_DISPOSITION_FILENAME_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#
 /// should basically never fire — kept as a safety net).
 static CONFIRM_TOKEN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"name="confirm"\s+value="([^"]+)""#).unwrap());
 
-// ---------- Shared helpers ----------
-
 /// Reject IDs that could escape the cache directory or contain URL/shell
 /// metacharacters. Drive IDs are base64url-like (alphanumeric + `_-`).
 fn validate_drive_id(id: &str) -> Result<()> {
@@ -103,8 +101,6 @@ fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {
     })?;
     Ok(())
 }
-
-// ---------- SAPISIDHASH auth + XHR pagination ----------
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -206,8 +202,6 @@ fn parse_xhr_page(body: &str) -> Result<(Vec<DriveItem>, Option<String>)> {
     Ok((items, page.next_page_token))
 }
 
-// ---------- Folder listing ----------
-
 pub async fn list_drive_folder(session: &Session, folder_id: &str) -> Result<DriveFolderListing> {
     list_drive_folder_at(session, folder_id, DRIVE_XHR_ENDPOINT).await
 }
@@ -303,8 +297,6 @@ async fn fetch_all_pages(
     )))
 }
 
-// ---------- Single file download ----------
-
 /// Download a single Drive file into the local cache.
 pub async fn fetch_drive_file(
     session: &Session,
@@ -314,7 +306,6 @@ pub async fn fetch_drive_file(
 ) -> Result<DriveFileFetchResult> {
     validate_drive_id(file_id)?;
 
-    // Cache hit path: we need filename from a side-by-side meta JSON.
     if !no_cache {
         if let Some(hit) = try_cache(paths, file_id)? {
             debug!(%file_id, "drive cache hit");
@@ -606,10 +597,6 @@ fn now_rfc3339() -> String {
         .unwrap_or_default()
 }
 
-// Keep Path import used even under cfg(test) gating if tests are removed.
-#[allow(dead_code)]
-fn _ensure_path_type(_p: &Path) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -813,7 +800,6 @@ mod tests {
         atomic_write(&target, b"second").unwrap();
         let got = fs::read(&target).unwrap();
         assert_eq!(got, b"second");
-        // No leftover tempfile.
         let remaining: Vec<_> = fs::read_dir(&dir)
             .unwrap()
             .filter_map(|e| e.ok().map(|e| e.file_name()))

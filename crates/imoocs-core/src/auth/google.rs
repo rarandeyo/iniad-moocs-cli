@@ -22,10 +22,8 @@ static META_REFRESH_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r#"<meta\s+http-equiv="refresh"\s+content=".*?\s+url=(.*?)">"#).unwrap());
 
 pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> {
-    // Step 1: bootstrap
     let body = session.client.get(SAML_REDIRECT_URL).send().await?.text().await?;
 
-    // Step 2: Keycloak username/password (if shown)
     let mut document = Html::parse_document(&body);
     let initial_action = extract_element_attribute(&document.root_element(), "form.form-signin", "action");
     if let Ok(action) = initial_action {
@@ -56,7 +54,6 @@ pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> 
         )?;
     }
 
-    // Step 3: saml-post-binding → POST to continue SAML assertion
     let (action, saml_response, relay_state) = {
         let root = document.root_element();
         (
@@ -77,7 +74,6 @@ pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> 
         .await?;
     let body = resp.text().await?;
 
-    // Step 4: hiddenpost → POST
     let document = Html::parse_document(&body);
     let (action, relay_state, saml_response, trampoline) = {
         let root = document.root_element();
@@ -100,7 +96,6 @@ pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> 
         .await?;
     let body = resp.text().await?;
 
-    // Step 5: follow anchor href
     let href = ANCHOR_HREF_RE
         .captures(&body)
         .and_then(|c| c.get(1))
@@ -114,7 +109,6 @@ pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> 
         .text()
         .await?;
 
-    // Step 6: follow meta refresh
     let url = META_REFRESH_RE
         .captures(&body)
         .and_then(|c| c.get(1))

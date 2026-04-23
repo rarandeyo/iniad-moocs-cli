@@ -112,13 +112,10 @@ impl StepReport {
 }
 
 pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
-    // Text モード時のみ stderr に進捗行を流す。JSON モードでは最終 envelope
-    // だけで十分 (steps に同じ情報が入る)。
     let text_mode = matches!(global.format, OutputMode::Text);
     let mut steps: Vec<StepReport> = Vec::new();
     let mut failure: Option<ImoocsError> = None;
 
-    // ---- [1/4] INIAD MOOCs login ----
     if text_mode {
         eprintln!("[1/4] INIAD MOOCs ログイン ...");
     }
@@ -139,7 +136,6 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
         }
     }
 
-    // ---- [2/4] Google SAML ----
     if failure.is_some() {
         steps.push(StepReport::skipped("authLoginGoogle", "prior step failed"));
     } else if args.skip_google {
@@ -169,7 +165,6 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
         }
     }
 
-    // ---- [3/4] confirm mode ----
     if failure.is_some() {
         steps.push(StepReport::skipped("confirmMode", "prior step failed"));
     } else {
@@ -203,9 +198,6 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
         }
     }
 
-    // ---- [4/4] doctor ----
-    // steps 1/2 が成功していれば doctor は基本 green になるので、矛盾が
-    // 出た時だけ text モードで警告を出す。envelope には常に記録する。
     if failure.is_some() {
         steps.push(StepReport::skipped("doctor", "prior step failed"));
     } else {
@@ -254,7 +246,6 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
         }
     }
 
-    // ---- finalize ----
     let all_ok = failure.is_none();
     let skill_install_hint = if all_ok {
         Some(SkillInstallHint::recommended())

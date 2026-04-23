@@ -178,7 +178,6 @@ fn extract_svgs(body: &str) -> Vec<String> {
 /// whose content is the fetched resource. Shares the download across SVGs that
 /// reference the same URL. Failures are warned and leave the original URL.
 async fn inline_image_refs(session: &Session, svgs: &[String]) -> Result<Vec<String>> {
-    // Collect all unique URLs across slides.
     let mut urls: Vec<String> = Vec::new();
     for svg in svgs {
         for cap in XLINK_HTTPS_RE.captures_iter(svg) {
@@ -193,7 +192,6 @@ async fn inline_image_refs(session: &Session, svgs: &[String]) -> Result<Vec<Str
     }
     info!(count = urls.len(), "pre-fetching inlined slide images");
 
-    // Fetch in parallel.
     type FetchOutcome = std::result::Result<(Vec<u8>, Option<String>), String>;
     let results: Vec<(String, FetchOutcome)> = stream::iter(urls.into_iter())
         .map(|url| async move {
@@ -229,7 +227,6 @@ async fn inline_image_refs(session: &Session, svgs: &[String]) -> Result<Vec<Str
         }
     }
 
-    // Rewrite each SVG replacing matching URLs.
     let out: Vec<String> = svgs
         .iter()
         .map(|svg| {
@@ -249,17 +246,13 @@ async fn inline_image_refs(session: &Session, svgs: &[String]) -> Result<Vec<Str
 
 fn detect_mime(header_ct: Option<&str>, bytes: &[u8]) -> &'static str {
     if let Some(ct) = header_ct {
-        // Sanitize common aliases
         return match ct {
             "image/jpeg" | "image/jpg" => "image/jpeg",
             "image/png" => "image/png",
             "image/gif" => "image/gif",
             "image/webp" => "image/webp",
             "image/svg+xml" => "image/svg+xml",
-            _ => {
-                // Fall back to magic sniffing
-                sniff_mime(bytes)
-            }
+            _ => sniff_mime(bytes),
         };
     }
     sniff_mime(bytes)
@@ -342,7 +335,6 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
                     let mut dict = dict.clone();
                     dict.set("Parent", pages_object.as_ref().map_or(*object_id, |(id, _)| *id));
                     if let Some((_, Object::Dictionary(prev))) = pages_object.clone() {
-                        // Merge Kids and Count
                         dict.extend(&prev);
                     }
                     pages_object = Some((pages_object.map_or(*object_id, |(id, _)| id), Object::Dictionary(dict)));
@@ -357,7 +349,6 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
         None => return Err(ImoocsError::Internal("no Pages object across merged PDFs".into())),
     };
 
-    // Update all page dicts to point to the new Pages parent.
     for (object_id, object) in documents_pages.iter() {
         if let Ok(dict) = object.as_dict() {
             let mut dict = dict.clone();
@@ -366,7 +357,6 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
         }
     }
 
-    // Collect page ids for the Pages dict.
     let page_ids: Vec<Object> = documents_pages.keys().map(|id| Object::Reference(*id)).collect();
     let page_count = page_ids.len() as i64;
 
@@ -380,7 +370,6 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
 
     document.objects.insert(pages_object_id, Object::Dictionary(pages_dict));
 
-    // Catalog
     let catalog_object_id = match catalog_object {
         Some((id, Object::Dictionary(mut dict))) => {
             dict.set("Pages", pages_object_id);

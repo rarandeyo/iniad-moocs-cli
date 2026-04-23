@@ -22,7 +22,6 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
     let doc = Html::parse_fragment(html);
     let root = doc.root_element();
 
-    // Walk descendants in document order; keep a sliding `last_label` as context.
     let mut fields: Vec<ProblemField> = Vec::new();
     let mut radio_groups: BTreeMap<String, RadioGroup> = BTreeMap::new();
     let mut last_label: Option<String> = None;
@@ -152,7 +151,6 @@ fn contains_input(el: &ElementRef<'_>) -> bool {
 /// For a radio/checkbox input, return the text of the enclosing `<label>` with
 /// the input's own children removed. Falls back to the next sibling text node.
 fn nearest_label_text(input: &ElementRef<'_>) -> String {
-    // Walk up: find the closest <label> ancestor.
     let mut cur = input.parent();
     for _ in 0..4 {
         let Some(node) = cur else { break };
@@ -164,7 +162,6 @@ fn nearest_label_text(input: &ElementRef<'_>) -> String {
                         match child.value() {
                             Node::Text(t) => text.push_str(&t.text),
                             Node::Element(child_el) => {
-                                // Skip the input and non-textual elements
                                 if matches!(child_el.name(), "input" | "textarea" | "select") {
                                     continue;
                                 }

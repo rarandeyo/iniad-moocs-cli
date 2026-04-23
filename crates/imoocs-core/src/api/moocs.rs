@@ -7,8 +7,8 @@ use crate::api::assignments::{get_answers, get_assignment_detail, get_problem_ht
 use crate::auth::is_logged_in_moocs;
 use crate::error::{ImoocsError, Result};
 use crate::schemas::{
-    AssignmentDetail, AssignmentKey, AssignmentStatus, AssignmentSummary, Course, CourseDetail, DerivedStatus, Embed,
-    Lang, Lesson, LessonContent, LessonWithAssignments, Page, ProblemField, Year,
+    AssignmentDetail, AssignmentKey, AssignmentStatus, AssignmentSummary, Course, CourseDetail, DerivedStatus, Lang,
+    Lesson, LessonContent, LessonWithAssignments, Page, ProblemField, Year,
 };
 use crate::scrape::problem_form::parse_problem_form;
 use crate::scrape::{
@@ -42,12 +42,10 @@ pub async fn resolve_latest_year(session: &Session) -> Result<Year> {
         return Err(ImoocsError::Api(format!("GET /courses returned status {status}")));
     }
 
-    // Case A: MOOCs did redirect to /courses/<year> (e.g. archive year).
     if let Some(MoocsPath::Year(y)) = url::parse(final_url.as_str()) {
         return Ok(y);
     }
 
-    // Case B: extract year from any course card link /courses/<year>/<courseId>.
     if let Some(y) = extract_year_from_course_links(&body) {
         return Ok(y);
     }
@@ -114,7 +112,6 @@ pub async fn get_course_detail(session: &Session, year: Year, course_id: &str) -
     let lessons = scrape_course_lessons(&html, year, course_id)?;
     let groups = scrape_course_lecture_groups(&html, year, course_id)?;
 
-    // Also recover the course name from the top of the lesson list (course page title).
     let course = Course {
         year,
         course_id: course_id.to_string(),
@@ -219,7 +216,6 @@ pub async fn list_course_assignments(session: &Session, year: Year, course_id: &
     ensure_authenticated(session).await?;
     let detail = get_course_detail(session, year, course_id).await?;
 
-    // Stage 1: for each lesson, fetch its bare URL to learn its pages.
     let lessons = detail.lessons.clone();
     let pages = stream::iter(lessons.into_iter())
         .map(|lref| async move {
@@ -246,7 +242,6 @@ pub async fn list_course_assignments(session: &Session, year: Year, course_id: &
         }
     }
 
-    // Stage 2: fetch each page, scrape assignments. Dedupe by problem_id.
     let course_owned = course_id.to_string();
     let assignment_vecs = stream::iter(all_pages.into_iter())
         .map(|(lesson_id, page_id, page_url)| {
@@ -278,7 +273,6 @@ pub async fn list_course_assignments(session: &Session, year: Year, course_id: &
         }
     }
 
-    // Stage 3: resolve status + derived_status per summary in parallel.
     let list: Vec<AssignmentSummary> = stream::iter(seen.into_values())
         .map(|a| async move { resolve_summary(session, a).await })
         .buffer_unordered(4)
@@ -360,8 +354,6 @@ pub async fn get_lesson_pages(session: &Session, year: Year, course_id: &str, le
     // Title: the sidebar's section title is already in the lesson list; as a fallback we take
     // the rendered h1 on the lesson page.
     let title = extract_course_name(&html).unwrap_or_else(|| lesson_id.to_string());
-    // Drop unused import warning for Embed in this fn: no-op
-    let _ = std::marker::PhantomData::<Embed>;
     Ok(Lesson {
         year,
         course_id: course_id.to_string(),

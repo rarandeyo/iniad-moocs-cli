@@ -18,7 +18,6 @@ use crate::util::html::parse_selector;
 /// Extract lessons for the given (year, course_id) from the course page HTML.
 pub fn scrape_course_lessons(html: &str, year: Year, course_id: &str) -> Result<Vec<LessonRef>> {
     let document = Html::parse_document(html);
-    // Lesson links live inside the aside/sidebar.
     let aside_selector = parse_selector("aside a[href]")?;
 
     let mut seen = BTreeMap::new();
@@ -104,7 +103,6 @@ pub fn scrape_course_lecture_groups(html: &str, year: Year, course_id: &str) -> 
 
     let mut groups: Vec<LectureGroup> = Vec::new();
     for li in document.select(&treeview_sel) {
-        // Group title: first direct <a>/<span>/<text> child of the li
         let title = li
             .children()
             .filter_map(ElementRef::wrap)

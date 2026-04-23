@@ -72,7 +72,6 @@ pub async fn do_login(
     let paths = Paths::discover()?;
     let mut cfg = Config::load(&paths.config_file())?;
 
-    // Username: prefer --username flag > config > prompt.
     let username = match username_arg.or(cfg.username.clone()) {
         Some(u) => u,
         None => Input::<String>::new()
@@ -81,7 +80,6 @@ pub async fn do_login(
             .map_err(map_dialoguer_err)?,
     };
 
-    // Password: --password-stdin > keyring > prompt.
     let password = if password_stdin {
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf)?;

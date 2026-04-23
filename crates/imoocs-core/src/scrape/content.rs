@@ -35,7 +35,6 @@ pub struct LessonContentRaw {
 pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
     let doc = Html::parse_document(html);
 
-    // Title: prefer the content-header h1, fall back to <title>
     let title = doc
         .select(&parse_selector(".content-header h1")?)
         .next()
@@ -47,11 +46,9 @@ pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
         })
         .unwrap_or_default();
 
-    // Main content area: main article-ish region
     let main_sel = parse_selector(".content-wrapper, main, section.content, .content, body")?;
     let main_root = doc.select(&main_sel).next().unwrap_or_else(|| doc.root_element());
 
-    // Markdown: take the .markdown-block elements and concatenate their rough markdown
     let md_sel = parse_selector(".markdown-block")?;
     let mut markdown = String::new();
     for block in doc.select(&md_sel) {
@@ -62,7 +59,6 @@ pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
         markdown.push_str(rendered.trim());
     }
 
-    // Embeds: enumerate iframes inside main content, dedupe consecutive, skip helper frames.
     let iframe_sel = parse_selector("iframe")?;
     let mut embeds = Vec::new();
     for iframe in main_root.select(&iframe_sel) {
@@ -133,7 +129,6 @@ pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
 fn crude_markdown_from_element(el: &ElementRef<'_>) -> String {
     let mut out = String::new();
     render_node(*el, &mut out);
-    // Collapse >=3 consecutive blank lines
     let collapsed = Regex::new(r"\n{3,}").unwrap().replace_all(&out, "\n\n");
     collapsed.trim().to_string()
 }
@@ -229,7 +224,6 @@ fn heading(el: ElementRef<'_>, out: &mut String, level: u8) {
 }
 
 fn derive_export_url(embed_url: &str, format: &str) -> String {
-    // Replace trailing /embed or /pubembed with /export/<format>
     let re = Regex::new(r"/(pubembed|embed)(\?.*)?$").unwrap();
     re.replace(embed_url, format!("/export/{format}")).into_owned()
 }
