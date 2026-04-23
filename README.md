@@ -69,7 +69,7 @@ imoocs course {list,show}
 imoocs lesson show <courseId> <lessonId> [--page <p>] [--fetch-slides] [--with-assignments]
 imoocs slide fetch <embedUrl>
 imoocs assignment {list,show,answer,submit,upload}  # --url <url>, --lesson, --status 対応
-imoocs drive {list,fetch}                           # INIAD Workspace SAML cookie で
+imoocs drive {list,fetch,folders}                   # list/fetch は SAML cookie で Drive、folders は course-drive-folders.toml を表示
 imoocs open <url>                                   # URL 1 本でルーティング
 imoocs {doctor,completion,version}
 ```

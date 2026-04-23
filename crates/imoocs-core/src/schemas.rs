@@ -364,4 +364,14 @@ pub struct DoctorReport {
     pub data_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub username: Option<String>,
+    /// `course-drive-folders.toml` が存在すれば件数サマリ、無ければ `None`。
+    pub drive_folders: Option<DriveFoldersSummary>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveFoldersSummary {
+    pub total: usize,
+    pub resolved: usize,
+    pub unresolved: usize,
 }

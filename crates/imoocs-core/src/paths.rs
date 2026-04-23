@@ -52,6 +52,10 @@ impl Paths {
         self.config_dir.join("config.toml")
     }
 
+    pub fn course_drive_folders_file(&self) -> PathBuf {
+        self.config_dir.join("course-drive-folders.toml")
+    }
+
     pub fn credentials_file(&self) -> PathBuf {
         self.data_dir.join("credentials.toml")
     }

@@ -11,6 +11,7 @@ use imoocs_core::{
 };
 
 use crate::cli::GlobalArgs;
+use crate::commands::drive;
 use crate::output;
 
 /// `imoocs doctor` の生データ生成。envelope emit を含まないので
@@ -21,6 +22,9 @@ pub async fn compute_report() -> Result<DoctorReport> {
     let session = Session::new(paths.clone_paths())?;
     let moocs_auth = is_logged_in_moocs(&session).await.unwrap_or(false);
     let google_auth = is_logged_in_google(&session).await.unwrap_or(false);
+    let drive_folders = drive::compute_folders_report(&paths)
+        .unwrap_or(None)
+        .map(|cdf| cdf.summary());
 
     Ok(DoctorReport {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -30,6 +34,7 @@ pub async fn compute_report() -> Result<DoctorReport> {
         data_dir: paths.data_dir,
         cache_dir: paths.cache_dir,
         username: cfg.username,
+        drive_folders,
     })
 }
 
@@ -46,6 +51,21 @@ fn render(r: &DoctorReport) -> String {
     let mooc_user = r.username.as_deref().unwrap_or("-");
     let _ = writeln!(out, "  {} MOOCs login   ({mooc_user})", mark(r.moocs_authenticated));
     let _ = writeln!(out, "  {} Google SSO", mark(r.google_authenticated));
+    match &r.drive_folders {
+        Some(s) if s.unresolved == 0 => {
+            let _ = writeln!(out, "  ✓ Drive folders ({} courses)", s.total);
+        }
+        Some(s) => {
+            let _ = writeln!(
+                out,
+                "  ✓ Drive folders ({} courses, {} unresolved)",
+                s.total, s.unresolved
+            );
+        }
+        None => {
+            let _ = writeln!(out, "  ✗ Drive folders not configured (run /imoocs-drive-setup)");
+        }
+    }
     let _ = writeln!(out, "Paths");
     let _ = writeln!(out, "  config  {}", r.config_dir.display());
     let _ = writeln!(out, "  data    {}", r.data_dir.display());

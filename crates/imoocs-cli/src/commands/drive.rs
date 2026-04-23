@@ -1,5 +1,7 @@
-//! `imoocs drive list|fetch` — session の SAML cookie を使った Drive folder/file アクセス。
+//! `imoocs drive list|fetch|folders` — session の SAML cookie を使った Drive folder/file アクセス、
+//! および `course-drive-folders.toml` の表示。
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -7,6 +9,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use imoocs_core::{
     api::drive::{fetch_drive_file, list_drive_folder},
+    drive_folders::{CourseDriveFolders, MatchStrategy},
     envelope::ErrorDetail,
     paths::Paths,
     session::Session,
@@ -41,10 +44,20 @@ pub enum DriveCommand {
         #[arg(long)]
         no_cache: bool,
     },
+    /// `course-drive-folders.toml` (履修コース ↔ Drive フォルダの対応) を表示する。
+    ///
+    /// `imoocs-drive-setup` skill が書き込む TOML を読み取り専用で表示するだけ。
+    /// 編集はせず、対象ファイルが無ければその旨を案内する。
+    Folders,
 }
 
 pub async fn run(global: &GlobalArgs, cmd: DriveCommand) -> Result<ExitCode> {
     let paths = Paths::discover()?;
+
+    if let DriveCommand::Folders = cmd {
+        return Ok(run_folders(global, &paths));
+    }
+
     let session = Session::new(paths.clone_paths())?;
 
     match cmd {
@@ -100,6 +113,67 @@ pub async fn run(global: &GlobalArgs, cmd: DriveCommand) -> Result<ExitCode> {
                 Err(e) => Ok(emit_err(e)),
             }
         }
+        DriveCommand::Folders => unreachable!("handled above"),
+    }
+}
+
+/// `course-drive-folders.toml` を純粋に読み込む。`doctor` から再利用する
+/// ためにコマンド本体と分離してある。ファイル未存在は `Ok(None)`、
+/// パース失敗は `Err`。
+pub fn compute_folders_report(paths: &Paths) -> Result<Option<CourseDriveFolders>, ImoocsError> {
+    CourseDriveFolders::load(&paths.course_drive_folders_file())
+}
+
+fn run_folders(global: &GlobalArgs, paths: &Paths) -> ExitCode {
+    match compute_folders_report(paths) {
+        Ok(report) => {
+            output::emit_success_text(report, global.format, render_folders);
+            ExitCode::from(0)
+        }
+        Err(e) => emit_err(e),
+    }
+}
+
+fn render_folders(report: &Option<CourseDriveFolders>) -> String {
+    let Some(cdf) = report else {
+        return "No course-drive-folders.toml registered. Run /imoocs-drive-setup in a MOOCs skill-enabled session.".to_string();
+    };
+    let mut out = String::new();
+    let _ = writeln!(out, "Drive root: {}", cdf.drive_root_folder_id);
+    if cdf.courses.is_empty() {
+        let _ = write!(out, "(no courses registered)");
+        return out;
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "year | courseId | name | strategy | url");
+    for c in &cdf.courses {
+        let strategy = strategy_label(c.match_strategy);
+        let url = if c.drive_folder_url.is_empty() {
+            "-"
+        } else {
+            c.drive_folder_url.as_str()
+        };
+        let _ = writeln!(
+            out,
+            "{} | {} | {} | {} | {}",
+            c.year, c.course_id, c.name, strategy, url
+        );
+    }
+    let s = cdf.summary();
+    let _ = write!(
+        out,
+        "\n{} courses ({} resolved, {} unresolved)",
+        s.total, s.resolved, s.unresolved
+    );
+    out
+}
+
+fn strategy_label(s: MatchStrategy) -> &'static str {
+    match s {
+        MatchStrategy::Exact => "exact",
+        MatchStrategy::Partial => "partial",
+        MatchStrategy::UserConfirmed => "user-confirmed",
+        MatchStrategy::Unresolved => "unresolved",
     }
 }
 
