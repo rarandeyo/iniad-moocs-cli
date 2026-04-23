@@ -17,16 +17,15 @@ use crate::output;
 
 #[derive(Debug, Args)]
 pub struct OpenArgs {
-    /// MOOCs URL (e.g. a lesson page or a course overview).
+    /// MOOCs URL (例: lesson ページやコース概要)。
     pub url: String,
-    /// When the URL points to a lesson and it has Google Slides embeds, also
-    /// fetch the PDFs.
+    /// URL が lesson で Google Slides の embed が含まれているときに PDF も取得する。
     #[arg(long)]
     pub fetch_slides: bool,
-    /// Force re-download of slide PDFs.
+    /// スライド PDF を強制再取得する。
     #[arg(long)]
     pub no_cache: bool,
-    /// Language for the problem statement when assignments are expanded.
+    /// 課題を展開するときの問題文の言語。
     #[arg(long, value_enum, default_value = "ja")]
     pub lang: super::assignment::LangArg,
 }

@@ -17,29 +17,28 @@ use crate::cli::GlobalArgs;
 
 #[derive(Debug, Subcommand)]
 pub enum AuthCommand {
-    /// Log in to MOOCs (Keycloak). Prompts for username once; password stored in OS keyring.
+    /// MOOCs (Keycloak) にログインする。初回のみ username を聞き、password は OS の keyring に保存。
     Login {
-        /// Override the username (otherwise read from config or prompted).
+        /// username を上書きする (未指定時は config から読むかプロンプト)。
         #[arg(long, env = "IMOOCS_USERNAME")]
         username: Option<String>,
-        /// Read the password from stdin (for CI / agents). Overrides keyring.
+        /// stdin から password を読む (CI / agent 向け)。keyring より優先。
         #[arg(long)]
         password_stdin: bool,
     },
-    /// Log in to Google Workspace (SAML via INIAD SSO). Required for slide PDFs.
+    /// Google Workspace (INIAD SSO 経由の SAML) にログインする。スライド PDF 取得に必要。
     LoginGoogle,
-    /// Forget stored credentials and cookies.
+    /// 保存済みの credential と cookie を破棄する。
     Logout {
-        /// Keep config.toml (only remove keyring + cookies.json).
+        /// config.toml を残す (keyring + cookies.json のみ削除)。
         #[arg(long)]
         keep_config: bool,
     },
-    /// Report authentication state. Exit 0 when logged in to MOOCs, 2 otherwise.
+    /// 認証状態を報告する。MOOCs にログイン済みなら exit 0、未ログインなら exit 2。
     Status,
-    /// Print stored username and whether a keyring entry exists.
-    /// The password itself is never printed — inspect the OS keyring
-    /// directly (macOS Keychain / GNOME Keyring / Windows Credential Manager)
-    /// if you need to recover it.
+    /// 保存済みの username と keyring entry の有無を表示する。
+    /// password 自体は出力されない — 必要なら OS の keyring
+    /// (macOS Keychain / GNOME Keyring / Windows Credential Manager) を直接参照する。
     Export,
 }
 

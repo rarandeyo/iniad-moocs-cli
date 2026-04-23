@@ -15,10 +15,10 @@ use imoocs_core::config::Config;
 use imoocs_core::paths::{resolve_slides_out_dir, Paths, DEFAULT_SLIDES_OUT_DIR};
 use imoocs_core::Result;
 
-/// Layer the effective slide-PDF destination onto `Paths`.
+/// 有効な slide-PDF の保存先を `Paths` に重ねる。
 ///
-/// Precedence (high → low): CLI flag (`--out-dir`), `config.toml [slides] out_dir`,
-/// then the built-in default (`DEFAULT_SLIDES_OUT_DIR` = `"tmp"`).
+/// 優先順位 (高 → 低): CLI flag (`--out-dir`), `config.toml [slides] out_dir`,
+/// 組み込みデフォルト (`DEFAULT_SLIDES_OUT_DIR` = `"tmp"`)。
 pub fn apply_slides_config(paths: Paths, cli_override: Option<&str>) -> Result<Paths> {
     let cfg = Config::load(&paths.config_file())?;
     let value = cli_override

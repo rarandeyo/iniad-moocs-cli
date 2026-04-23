@@ -1,4 +1,4 @@
-//! `imoocs drive list|fetch` — Drive folder/file access via the session's SAML cookie.
+//! `imoocs drive list|fetch` — session の SAML cookie を使った Drive folder/file アクセス。
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -20,24 +20,24 @@ use crate::output;
 
 #[derive(Debug, Subcommand)]
 pub enum DriveCommand {
-    /// List items in a Drive folder by scraping `window['_DRIVE_ivd']`.
+    /// Drive folder の中身を列挙する (`window['_DRIVE_ivd']` を scrape)。
     ///
-    /// Accepts `/drive/folders/<id>` URLs or a bare folder ID.
+    /// `/drive/folders/<id>` URL または folder id を受け付ける。
     List {
-        /// `/drive/folders/<id>` URL or folder ID.
+        /// `/drive/folders/<id>` URL か folder id。
         target: String,
     },
-    /// Download a single Drive file into the cache.
+    /// 単一の Drive ファイルを cache にダウンロードする。
     ///
-    /// Accepts `/file/d/<id>/...` URLs, `/uc?export=download&id=<id>` URLs,
-    /// `drive.usercontent.google.com/download?id=<id>` URLs, or a bare file ID.
+    /// `/file/d/<id>/...` / `/uc?export=download&id=<id>` /
+    /// `drive.usercontent.google.com/download?id=<id>` URL、または file id を受け付ける。
     Fetch {
-        /// `/file/d/<id>/(view|preview)?`, `/uc?...&id=<id>`, or file ID.
+        /// `/file/d/<id>/(view|preview)?`, `/uc?...&id=<id>`, または file id。
         target: String,
-        /// Copy the downloaded file to this path in addition to caching.
+        /// cache に加えて、このパスにダウンロードファイルをコピーする。
         #[arg(long)]
         out: Option<PathBuf>,
-        /// Force re-download, ignoring the 24h cache.
+        /// 24h cache を無視して強制再取得する。
         #[arg(long)]
         no_cache: bool,
     },
@@ -107,7 +107,7 @@ pub async fn run(global: &GlobalArgs, cmd: DriveCommand) -> Result<ExitCode> {
 enum DriveTarget {
     File(String),
     Folder(String),
-    /// A bare ID (no URL) — can't tell file vs folder, caller decides by command.
+    /// 裸の id (URL ではない) — file か folder か判別不可のため caller のコマンドに委ねる。
     Ambiguous(String),
     Unrecognized,
 }

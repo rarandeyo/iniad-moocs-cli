@@ -18,31 +18,31 @@ use crate::output;
 
 #[derive(Debug, Subcommand)]
 pub enum LessonCommand {
-    /// Show a lesson's page content (markdown body + embeds).
+    /// lesson ページの内容 (markdown 本文 + embed) を表示する。
     Show {
-        /// Course id (e.g. `INI301`). Ignored when `--url` is given.
+        /// コース id (例: `INI301`)。`--url` を指定した場合は無視される。
         #[arg(required_unless_present = "url")]
         course_id: Option<String>,
-        /// Lesson id (e.g. `DS-00`, `AI-01`). Ignored when `--url` is given.
+        /// lesson id (例: `DS-00`, `AI-01`)。`--url` を指定した場合は無視される。
         #[arg(required_unless_present = "url")]
         lesson_id: Option<String>,
-        /// Page id (e.g. `01`, `atnd`, `exercise`). Default: first page.
+        /// ページ id (例: `01`, `atnd`, `exercise`)。デフォルトは最初のページ。
         #[arg(long)]
         page: Option<String>,
-        /// Resolve course/lesson/page from a MOOCs URL instead of positional args.
+        /// positional 引数の代わりに MOOCs URL から course/lesson/page を解決する。
         #[arg(long, conflicts_with_all = ["course_id", "lesson_id", "page"])]
         url: Option<String>,
-        /// Download embedded Google Slides as PDFs and include `localPdfPath`.
+        /// 埋め込み Google Slides を PDF として取得し `localPdfPath` を結果に入れる。
         #[arg(long)]
         fetch_slides: bool,
-        /// Force re-download even if the slide cache is fresh (implies --fetch-slides).
+        /// スライド cache が有効でも強制的に再取得する (--fetch-slides が有効になる)。
         #[arg(long)]
         no_cache: bool,
-        /// Expand each on-page assignment into an AssignmentDetail and return
-        /// `{lesson, assignments: [AssignmentDetail, ...]}`.
+        /// ページ上の各課題を AssignmentDetail に展開し
+        /// `{lesson, assignments: [AssignmentDetail, ...]}` を返す。
         #[arg(long)]
         with_assignments: bool,
-        /// Language for expanded assignments (when --with-assignments is set).
+        /// 展開された課題の言語 (--with-assignments 指定時のみ有効)。
         #[arg(long, value_enum, default_value = "ja")]
         lang: super::assignment::LangArg,
     },

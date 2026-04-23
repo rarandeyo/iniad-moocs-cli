@@ -53,19 +53,20 @@ pub enum StatusFilter {
 
 #[derive(Debug, Subcommand)]
 pub enum AssignmentCommand {
-    /// List all assignments in a course (by crawling lessons/pages).
+    /// コース内の全課題を列挙する (lesson/page を巡回して収集)。
     #[command(visible_alias = "ls")]
     List {
         course_id: String,
-        /// Filter by lesson id (only assignments whose page is under this lesson).
+        /// lesson id でフィルタする (該当 lesson 配下のページの課題のみ)。
         #[arg(long)]
         lesson: Option<String>,
-        /// Filter by derived status. `pending` = open かつ未入力。`open` = 派生前の
-        /// AssignmentStatus::Open に対応 (Pending/Submitted を合わせたもの)。`all` は無フィルタ。
+        /// derived status でフィルタする。`pending` = open かつ未入力、
+        /// `open` = 派生前の AssignmentStatus::Open (Pending/Submitted の合算)、
+        /// `all` は無フィルタ。
         #[arg(long, value_enum, default_value_t = StatusFilter::All)]
         status: StatusFilter,
     },
-    /// Show a single assignment's status, fields (typed), and current answers.
+    /// 単一課題の status / 型付き field / 現在の answer を表示する。
     Show {
         #[arg(required_unless_present = "url")]
         course_id: Option<String>,
@@ -73,12 +74,12 @@ pub enum AssignmentCommand {
         problem_id: Option<String>,
         #[arg(long, value_enum, default_value_t = LangArg::Ja)]
         lang: LangArg,
-        /// Resolve the assignment from a lesson/page MOOCs URL.
-        /// The first `.problem-container` on the page is chosen; error if the page has 0 or > 1 assignments.
+        /// lesson / page の MOOCs URL から課題を解決する。
+        /// ページ上の最初の `.problem-container` を採用する。ページに課題が 0 個または 2 個以上ある場合はエラー。
         #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
         url: Option<String>,
     },
-    /// Save a draft answer without finalising. Accepts JSON `{pid: value}`.
+    /// 答案を下書き保存する (確定はしない)。JSON `{pid: value}` を受け付ける。
     Answer {
         #[arg(required_unless_present = "url")]
         course_id: Option<String>,
@@ -89,7 +90,7 @@ pub enum AssignmentCommand {
         #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
         url: Option<String>,
     },
-    /// Finalise the submission (PUT /answers with `force=true`).
+    /// 提出を確定する (PUT /answers with `force=true`)。
     Submit {
         #[arg(required_unless_present = "url")]
         course_id: Option<String>,
@@ -100,19 +101,19 @@ pub enum AssignmentCommand {
         #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
         url: Option<String>,
     },
-    /// Upload a file answer to a specific pid.
+    /// 指定 pid にファイル形式の答案を upload する。
     Upload {
         #[arg(required_unless_present = "url")]
         course_id: Option<String>,
         #[arg(required_unless_present = "url")]
         problem_id: Option<String>,
-        /// The problem field id for the file.
+        /// ファイル答案用の problem field id。
         #[arg(long)]
         pid: String,
-        /// Local file path to upload. Marked conditionally-required so clap's
-        /// positional-ordering assert doesn't fire against the Option<String>
-        /// course/problem positionals above; a runtime check below ensures it
-        /// is still present.
+        /// upload するローカルファイル。conditionally-required にしているのは、
+        /// 上の Option<String> な course_id / problem_id positional に対して
+        /// clap の positional 順序 assert が発火するのを避けるため。
+        /// 未指定で `--url` もない場合は runtime で検査する。
         #[arg(required_unless_present = "url")]
         file: Option<PathBuf>,
         #[arg(long)]
@@ -277,9 +278,10 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
     }
 }
 
-/// Resolve an AssignmentKey from either explicit positional args or a URL.
-/// URLs must point to a lesson page; the unique `.problem-container[data-problem]`
-/// on that page determines `problem_id`.
+/// positional の `course_id` / `problem_id` または `--url` から
+/// [`AssignmentKey`] を解決する。URL は lesson page を指す必要があり、
+/// `.problem-container[data-problem]` が 1 つしかない場合のみ
+/// `problem_id` を自動推定する。
 async fn resolve_key(
     session: &Session,
     global_year: Option<u32>,

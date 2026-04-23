@@ -14,20 +14,20 @@ use crate::output;
 
 #[derive(Debug, Subcommand)]
 pub enum SlideCommand {
-    /// Download a Google Slides pubembed and write a merged PDF to the cache
-    /// directory. Returns the local path.
+    /// Google Slides pubembed を取得し、統合 PDF を cache directory に書き、
+    /// ローカル path を返す。
     Fetch {
-        /// The iframe `src` from a lesson page (usually `docs.google.com/.../pubembed`).
+        /// lesson ページの iframe `src` (通常は `docs.google.com/.../pubembed`)。
         embed_url: String,
-        /// Override the slide cache directory for this call. Accepts
-        /// `cache`, `tmp`, or an absolute path. Falls back to
-        /// `config.toml [slides] out_dir`, then the built-in default (`tmp`).
+        /// この呼び出しに限り、スライド cache directory を上書きする。
+        /// `cache`, `tmp`, または絶対パスを受け付ける。未指定時は
+        /// `config.toml [slides] out_dir` → 組み込みデフォルト (`tmp`) の順に fallback。
         #[arg(long)]
         out_dir: Option<String>,
-        /// Force re-download even when the cache is fresh.
+        /// cache が新しくても強制的に再取得する。
         #[arg(long)]
         no_cache: bool,
-        /// Debug: dump raw pubembed HTML and extracted SVGs under this directory.
+        /// デバッグ用: pubembed の生 HTML と抽出した SVG をこの directory に dump する。
         #[arg(long, hide = true)]
         dump_svgs: Option<PathBuf>,
     },

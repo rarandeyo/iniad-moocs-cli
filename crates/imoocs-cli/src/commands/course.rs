@@ -9,12 +9,12 @@ use crate::output;
 
 #[derive(Debug, Subcommand)]
 pub enum CourseCommand {
-    /// List courses for a given year (default: latest).
+    /// 指定 year のコース一覧を返す (デフォルトは最新)。
     #[command(visible_alias = "ls")]
     List,
-    /// Show a course's lesson tree (from the sidebar).
+    /// コースの lesson tree (sidebar から) を表示する。
     Show {
-        /// Course id (e.g. `INI301`).
+        /// コース id (例: `INI301`)。
         course_id: String,
     },
 }
