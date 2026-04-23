@@ -48,9 +48,9 @@ pub async fn get_answers(session: &Session, key: &AssignmentKey) -> Result<HashM
     let resp = send_and_check(session.client.get(format!("{}/answers", prefix(key))), "/answers").await?;
     let raw: Value = resp.json().await?;
     debug!(?raw, "GET /answers raw body");
-    // `/answers` returns `{pid: {data, file, correct}, ...}`. Keys starting with
-    // `$` are server-side metadata (e.g. `$network` exposes the request's
-    // perceived network origin — NOT by itself a block). Skip those.
+    // `/answers` は `{pid: {data, file, correct}, ...}` を返す。`$` で始まる
+    // キーは server side のメタ情報 (例: `$network` は server から見たリクエスト
+    // 元のネットワーク種別を示すだけで、それ自体はブロックではない) なので skip
     let obj = match raw.as_object() {
         Some(o) => o,
         None => return Ok(HashMap::new()),

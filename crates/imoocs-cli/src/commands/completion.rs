@@ -26,7 +26,7 @@ impl ShellArg {
             ShellArg::Fish => Some(Shell::Fish),
             ShellArg::Powershell => Some(Shell::PowerShell),
             ShellArg::Elvish => Some(Shell::Elvish),
-            // Nushell uses its own generator from clap_complete_nushell; not enabled here.
+            // Nushell は clap_complete_nushell の専用 generator を使う (ここでは未対応)
             ShellArg::Nushell => None,
         }
     }

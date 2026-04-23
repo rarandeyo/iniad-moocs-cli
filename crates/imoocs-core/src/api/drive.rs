@@ -95,7 +95,7 @@ fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {
     let tmp_path = target.with_file_name(format!("{name}.tmp.{}", std::process::id()));
     fs::write(&tmp_path, bytes)?;
     fs::rename(&tmp_path, target).map_err(|e| {
-        // Best-effort cleanup; ignore secondary error.
+        // best-effort cleanup。2 次エラーは無視する
         let _ = fs::remove_file(&tmp_path);
         ImoocsError::Io(e)
     })?;
@@ -345,8 +345,8 @@ pub async fn fetch_drive_file(
 
     let bytes = resp.bytes().await?;
 
-    // Detect non-binary responses: empty body, login HTML, virus-scan
-    // interstitial, or any other HTML we should refuse to cache as a file.
+    // バイナリでないレスポンスの検出: 空 body / ログイン HTML /
+    // virus-scan interstitial などはファイルとしてキャッシュしない
     if let Some(retry) = detect_html_response(session, paths, file_id, content_type.as_deref(), &bytes).await? {
         return Ok(retry);
     }
@@ -374,9 +374,9 @@ async fn detect_html_response(
     if !is_html {
         return Ok(None);
     }
-    // `drive.usercontent.google.com` returns an empty body for Google native
-    // types (Docs/Sheets/Slides). Treat anything HTML-ish smaller than 1 KB as
-    // a native export failure so agents don't see a 0-byte success.
+    // `drive.usercontent.google.com` は Google native 型 (Docs/Sheets/Slides)
+    // に対して空 body を返すため、1KB 未満の HTML ライクレスポンスは native
+    // export 失敗扱いにして 0byte 成功を agent に見せない
     if bytes.len() < 1024 {
         return Err(ImoocsError::Api(
             "Drive download returned empty/tiny HTML (<1KB). This is typically a Google native \
@@ -385,8 +385,8 @@ async fn detect_html_response(
                 .into(),
         ));
     }
-    // Larger HTML — look for a Google login page (rare because we check
-    // final_url earlier, but kept as a defence in depth).
+    // 1KB 以上の HTML: Google ログインページを検出する (final_url で事前
+    // チェック済みなので稀だが defence in depth として残す)
     let head_lower = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]).to_ascii_lowercase();
     if head_lower.contains("accounts.google.com/servicelogin") || head_lower.contains("accounts.google.com/v3/signin") {
         return Err(ImoocsError::Auth {
@@ -394,9 +394,8 @@ async fn detect_html_response(
             hint: Some("run `imoocs auth login-google`".into()),
         });
     }
-    // Virus-scan interstitial fallback. With `confirm=t` prebaked into the URL
-    // this should basically never fire, but Google may tighten token validation
-    // in the future.
+    // virus-scan interstitial fallback。URL に `confirm=t` を埋めているので
+    // 通常は発火しないが、将来 Google が token 検証を厳格化した場合に備える
     let head = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]);
     if let Some(confirm_token) = CONFIRM_TOKEN_RE
         .captures(&head)
@@ -445,7 +444,7 @@ async fn fetch_with_confirm(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
     let bytes = resp.bytes().await?;
-    // Still HTML? give up to avoid loop / bad cache.
+    // retry してもまだ HTML ならループ / 不正キャッシュを避けるため諦める
     if matches!(content_type.as_deref(), Some("text/html")) {
         return Err(ImoocsError::Api(
             "Drive confirm-retry still returned HTML; refusing to cache".into(),
@@ -465,8 +464,8 @@ fn save_drive_file(
     mime: Option<&str>,
     bytes: &[u8],
 ) -> Result<DriveFileFetchResult> {
-    // Refuse to write anything identified as a Google-native type — protects
-    // against servers that succeed with 200 but empty body.
+    // Google native 型と判定されたものは書き込みを拒否する。
+    // 200 + 空 body を返すサーバから守るため
     if let Some(m) = mime {
         if m.starts_with(NATIVE_MIME_PREFIX) && m != "application/vnd.google-apps.folder" {
             return Err(ImoocsError::Api(format!(
@@ -481,8 +480,8 @@ fn save_drive_file(
         Some(e) => format!("{file_id}.{e}"),
         None => format!("{file_id}.bin"),
     });
-    // Write binary first (atomic tempfile + rename), then meta. If the process
-    // dies between the two, try_cache will find no meta and re-download.
+    // binary を先に書く (atomic tempfile + rename)、次に meta。途中で
+    // プロセスが死んでも try_cache 側は meta を見つけられず再取得する
     atomic_write(&binary_path, bytes)?;
 
     let meta = DriveCacheMeta {
@@ -534,9 +533,8 @@ fn try_cache(paths: &Paths, file_id: &str) -> Result<Option<DriveFileFetchResult
         Ok(m) => m,
         Err(_) => return Ok(None),
     };
-    // Integrity check: cached binary must match the size recorded in meta.
-    // Catches the case where a concurrent fetch truncated the binary while we
-    // were reading meta.
+    // 整合性チェック: cache 済み binary の size が meta の記録と一致すること。
+    // meta 読込中に並行 fetch が binary を truncate したケースを検出する
     if binary_meta.len() != meta.size_bytes {
         warn!(
             path = %binary_path.display(),

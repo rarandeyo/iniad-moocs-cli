@@ -34,8 +34,8 @@ impl Paths {
         let config_dir = strategy.config_dir().join(APP_NAME);
         let data_dir = strategy.data_dir().join(APP_NAME);
         let cache_dir = strategy.cache_dir().join(APP_NAME);
-        // Start with the XDG cache default; the CLI layer overrides this via
-        // `with_slides_dir` after reading config + CLI flags.
+        // いったん XDG cache のデフォルトを設定しておき、CLI 層が config と
+        // flag を読んだ後に `with_slides_dir` で上書きする
         let slides_dir = cache_dir.join("slides");
         Ok(Self {
             config_dir,

@@ -104,9 +104,9 @@ pub async fn fetch_slide_pdf_with_dump(
         }
     }
 
-    // Inline any https: image references into base64 data URIs so svg2pdf can
-    // rasterise them (otherwise the output PDF comes out blank for image-heavy
-    // slides).
+    // https: の image 参照を base64 data URI に inline する。svg2pdf が
+    // 外部画像を取得しない仕様なので、これをやらないと image 多めの
+    // slide で出力 PDF が真っ白になる
     let svgs = inline_image_refs(session, &svgs).await?;
 
     if let Some(dir) = dump_dir {
@@ -148,7 +148,8 @@ fn reuse_cache_if_fresh(path: &PathBuf) -> Result<Option<SlideFetchResult>> {
     Ok(Some(SlideFetchResult {
         local_pdf_path: path.clone(),
         size_bytes: meta.len(),
-        // We don't re-count pages from cache for speed; agents read the PDF directly.
+        // cache 再利用時は page count を数え直さない (速度優先)。
+        // agent は PDF を直接読む想定なので 0 のままでよい
         page_count: 0,
         fetched_at: time::OffsetDateTime::from(modified)
             .format(&time::format_description::well_known::Rfc3339)
@@ -305,7 +306,7 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
 
     use lopdf::{dictionary, Document, Object, ObjectId};
 
-    // Load each doc and renumber objects so they don't collide.
+    // 各 doc を load し object id を renumber して衝突を避ける
     let mut max_id: u32 = 1;
     let mut documents_pages: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut documents_objects: BTreeMap<ObjectId, Object> = BTreeMap::new();
@@ -324,7 +325,8 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
 
     let mut document = Document::with_version("1.5");
 
-    // Find Catalog/Pages objects from any input; we'll recreate the central Pages entry.
+    // 入力群から Catalog/Pages オブジェクトを検出する。
+    // 中央の Pages entry は後で再構築するので集めるだけ
     let mut catalog_object: Option<(ObjectId, Object)> = None;
     let mut pages_object: Option<(ObjectId, Object)> = None;
     for (object_id, object) in documents_objects.iter() {
@@ -387,7 +389,7 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
         }
     };
 
-    // Absorb all other objects (except the pages/catalog themselves, which we've set above).
+    // 残りの全 object を取り込む (pages / catalog 自体は上で設定済みなので除外)
     for (id, obj) in documents_objects {
         if id == pages_object_id || id == catalog_object_id {
             continue;

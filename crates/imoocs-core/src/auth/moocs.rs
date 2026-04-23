@@ -58,7 +58,7 @@ pub async fn login_moocs(session: &Session, creds: &Credentials) -> Result<()> {
         .await?;
     let post_url = post.url().clone();
     debug!(%post_url, status = ?post.status(), "credentials POSTed to Keycloak");
-    // Consume body so cookies and redirects are fully applied.
+    // body を消費して cookie と redirect を確実に反映させる
     let _ = post.text().await?;
 
     if is_logged_in_moocs(session).await? {

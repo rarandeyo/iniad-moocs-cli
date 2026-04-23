@@ -259,8 +259,8 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
     };
 
     if let Some(err) = failure {
-        // failure envelope: steps so far are carried in error.details so
-        // agents can see which step tripped first without parsing stderr.
+        // failure envelope: これまでの step 情報を error.details に載せ、
+        // agent が stderr を parse しなくても最初に失敗した step を拾えるようにする
         let mut detail = ErrorDetail::from_error(&err);
         detail.details = Some(serde_json::to_value(&report).unwrap_or(Value::Null));
         output::emit_failure::<Value>(&detail);

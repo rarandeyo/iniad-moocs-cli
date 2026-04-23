@@ -112,13 +112,13 @@ enum DriveTarget {
     Unrecognized,
 }
 
-// All patterns exclude `#` from the id capture so fragment anchors
-// (e.g. `/file/d/<id>#foo`) don't contaminate the fileId.
+// どの pattern も id のキャプチャから `#` を除外している。`#foo` のような
+// fragment anchor が fileId に混ざらないようにするため
 static FILE_URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^https://drive\.google\.com/file/d/([^/?#]+)").unwrap());
 static FOLDER_URL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^https://drive\.google\.com/drive/folders/([^/?#]+)").unwrap());
-// `(?:[^#]*&)?id=` makes the prefix optional so both `uc?id=X` (id-first) and
-// `uc?export=download&id=X` (id-last) are accepted.
+// `(?:[^#]*&)?id=` で prefix を optional にすることで、`uc?id=X` (id 先頭) と
+// `uc?export=download&id=X` (id 末尾) の両形式を受け付けられる
 static UC_URL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^https://drive\.google\.com/uc\?(?:[^#]*&)?id=([^&#]+)").unwrap());
 static USERCONTENT_URL_RE: Lazy<Regex> =

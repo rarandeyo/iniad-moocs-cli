@@ -27,7 +27,7 @@ pub fn scrape_lesson_pages(
 
     let items: Vec<_> = document.select(&pagination_selector).collect();
     if items.len() <= 2 {
-        // Only a single page; fallback to the current URL itself.
+        // lesson が 1 ページしかない場合は現在の URL 自体をそのページとして返す
         if let Some(MoocsPath::Page {
             year: y,
             course_id: c,

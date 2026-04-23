@@ -33,8 +33,8 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
         let name = el.value().name();
 
         match name {
-            // Track potential question labels — but skip wrappers that contain an input
-            // (those are per-option labels, handled separately).
+            // question label 候補を追跡する。ただし input を内包する wrapper は
+            // option 単位の label なので別経路で扱うためここでは除外する
             "label" | "p" | "h3" | "h4" | "h5" | "h6" => {
                 if contains_input(&el) {
                     continue;
@@ -97,7 +97,7 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
                             value,
                             text: option_text,
                         });
-                        // Consume last_label only for the first option of the group.
+                        // group 内で最初の option に限って last_label を消費する
                         last_label = None;
                     }
                     _ => {}
@@ -107,8 +107,8 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
         }
     }
 
-    // Append radio/checkbox groups in the order we first saw their labels (BTreeMap
-    // is by name, which is close enough for determinism).
+    // radio/checkbox group を追加する。BTreeMap の順序は name 順になるが、
+    // 決定論的な出力としては insertion order の近似として十分
     for (_, group) in radio_groups.into_iter() {
         let variant = if group.is_checkbox {
             ProblemField::Checkbox {
@@ -182,7 +182,7 @@ fn nearest_label_text(input: &ElementRef<'_>) -> String {
         cur = node.parent();
     }
 
-    // Fallback: next sibling text node after the input
+    // fallback: input の直後の sibling text node を採用する
     for sib in input.next_siblings() {
         if let Node::Text(t) = sib.value() {
             let tr = t.text.trim();

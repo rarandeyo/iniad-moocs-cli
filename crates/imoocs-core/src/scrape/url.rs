@@ -45,7 +45,7 @@ pub fn extract_path(url_or_path: &str) -> &str {
     } else if url_or_path.starts_with('/') {
         url_or_path
     } else {
-        // Fall back to the whole string; regex below will simply not match.
+        // そのまま渡す。この後の regex が match しないだけなので安全
         url_or_path
     }
 }

@@ -11,11 +11,12 @@ use crate::util::html::parse_selector;
 static SLIDES_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^https://docs\.google\.com/(a/[^/]+/)?presentation/d/(e/)?[^/?]+/(embed|pubembed)").unwrap()
 });
-// `[^/?#]+` excludes `#` so that anchored URLs like `/file/d/<id>#foo` don't
-// leak `#foo` into the captured fileId. The `#` character would otherwise end
-// up in cache filenames and in the constructed `download?id=<id>#foo&...` URL,
-// where reqwest's URL parser treats `#` as a fragment separator and silently
-// drops the `&export=download&confirm=t` suffix.
+
+// `[^/?#]+` で `#` を除外するのは、`/file/d/<id>#foo` のような anchor 付き
+// URL で `#foo` が fileId に混入するのを防ぐため。`#` が混ざると cache
+// ファイル名に入り込むほか、構築される `download?id=<id>#foo&...` で reqwest
+// の URL parser が `#` を fragment 区切りとして扱い、`&export=download&confirm=t`
+// を黙って落としてしまう。
 static DRIVE_FILE_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^https://drive\.google\.com/file/d/([^/?#]+)(?:/preview|/view)?").unwrap());
 static DRIVE_FOLDER_RE: Lazy<Regex> =
@@ -71,7 +72,7 @@ pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
         if src.is_empty() {
             continue;
         }
-        // Skip the cookie-helper that appears on every lesson
+        // すべての lesson に埋め込まれている cookie-helper は skip する
         if src.starts_with("https://storage.googleapis.com/moocs-files.iniad.org/tools/3pcc-start.html") {
             continue;
         }

@@ -45,7 +45,7 @@ pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> 
             });
         }
         document = Html::parse_document(&post_body);
-        // Must now have the saml-post-binding form to continue.
+        // ここで saml-post-binding form が見つからないと flow が破綻する
         extract_element_attribute(&document.root_element(), "form[name='saml-post-binding']", "action").map_err(
             |e| ImoocsError::Auth {
                 reason: format!("unexpected SAML response after Keycloak login: {e}"),

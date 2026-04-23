@@ -114,7 +114,7 @@ pub async fn do_login(
             Ok(LoginOutcome { username })
         }
         Err(err @ ImoocsError::Auth { .. }) => {
-            // Wipe stored password so the next attempt re-prompts.
+            // 次回再プロンプトさせるため、保存済みの password を消す
             let _ = keyring::delete_credential(&username);
             Err(err)
         }

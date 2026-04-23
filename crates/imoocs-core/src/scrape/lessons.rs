@@ -37,7 +37,7 @@ pub fn scrape_course_lessons(html: &str, year: Year, course_id: &str) -> Result<
         }
 
         let title = a.text().collect::<String>().trim().to_string();
-        // Deduplicate on lesson_id; prefer the first occurrence we saw.
+        // lesson_id で重複排除。最初に出現したエントリを優先する
         seen.entry(lesson_id.clone()).or_insert_with(|| {
             let section = find_section(&a);
             LessonRef {
@@ -58,8 +58,8 @@ pub fn scrape_course_lessons(html: &str, year: Year, course_id: &str) -> Result<
 /// top-level link/text). Returns `None` if not found.
 fn find_section(el: &ElementRef<'_>) -> Option<String> {
     let mut node = el.parent();
-    // Walk up a few levels searching for an ancestor <li> that has its own
-    // direct <a> or <span> labelling the section (Bootstrap sidebar pattern:
+    // DOM を数階層遡り、直下に <a>/<span> (section ラベル) を持つ <li> を探す。
+    // Bootstrap sidebar の構造:
     //   <li><a>SectionTitle</a><ul><li><a>LessonTitle</a></li>...</ul></li>
     for _ in 0..6 {
         let Some(n) = node else { break };
@@ -141,8 +141,8 @@ pub fn scrape_course_lecture_groups(html: &str, year: Year, course_id: &str) -> 
         }
     }
 
-    // Fallback: if no treeview structure matched, fall back to the flat list
-    // so that CourseDetail.groups is never empty when lessons exist.
+    // fallback: treeview 構造に一致しなかった場合は flat list に切り替え、
+    // lessons がある限り CourseDetail.groups が空にならないようにする
     if groups.is_empty() {
         let flat = scrape_course_lessons(html, year, course_id)?;
         if !flat.is_empty() {

@@ -155,7 +155,7 @@ pub async fn get_lesson_page(
     let html = resp.text().await?;
 
     let raw = scrape_lesson_content(&html)?;
-    // Derive the resolved page_id (MOOCs redirects bare lesson URLs to their first page).
+    // resolved page_id を推定する (MOOCs は bare な lesson URL を最初のページに redirect する)
     let resolved_page_id = match url::parse(&final_url) {
         Some(MoocsPath::Page { page_id, .. }) => page_id,
         Some(MoocsPath::Lesson { .. }) => page_id.unwrap_or_default().to_string(),
@@ -351,8 +351,8 @@ pub async fn get_lesson_pages(session: &Session, year: Year, course_id: &str, le
     let html = resp.text().await?;
     let pages: Vec<Page> = scrape_lesson_pages(&html, &final_url, year, course_id, lesson_id)?;
 
-    // Title: the sidebar's section title is already in the lesson list; as a fallback we take
-    // the rendered h1 on the lesson page.
+    // title は sidebar の section title (lesson list 側が正) を優先し、
+    // 取れなければ lesson page 上の h1 を fallback として採用する
     let title = extract_course_name(&html).unwrap_or_else(|| lesson_id.to_string());
     Ok(Lesson {
         year,
