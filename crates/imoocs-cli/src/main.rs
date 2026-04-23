@@ -5,6 +5,7 @@ use clap::Parser;
 mod cli;
 mod commands;
 mod output;
+mod skills;
 
 #[tokio::main]
 async fn main() -> ExitCode {

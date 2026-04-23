@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::config::ConfirmMode;
+
 pub type Year = u32;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -379,6 +381,14 @@ pub struct DoctorReport {
     pub username: Option<String>,
     /// `course-drive-folders.toml` が存在すれば件数サマリ、無ければ `None`。
     pub drive_folders: Option<DriveFoldersSummary>,
+    /// `assignment.confirm` の設定値。未設定 (= `imoocs setup` 未実施) なら `None`。
+    pub confirm_mode: Option<ConfirmMode>,
+    /// 現在の shell 向け completion の配置状況。shell 検出不能または未対応なら `None`。
+    pub completion: Option<CompletionStatus>,
+    /// agent skill の検出結果 (`gh skill list` → filesystem fallback)。
+    pub skills: SkillDetectionReport,
+    /// critical (auth) と warn (confirm/completion/drive/skills) が全て ✓ のとき true。
+    pub quick_start_complete: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
@@ -387,4 +397,28 @@ pub struct DriveFoldersSummary {
     pub total: usize,
     pub resolved: usize,
     pub unresolved: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionStatus {
+    pub shell: String,
+    pub path: PathBuf,
+    pub installed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDetectionReport {
+    pub method: SkillDetectionMethod,
+    pub imoocs: bool,
+    pub imoocs_drive_setup: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum SkillDetectionMethod {
+    Gh,
+    Filesystem,
+    Unknown,
 }

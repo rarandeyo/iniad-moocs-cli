@@ -173,7 +173,7 @@ pub(crate) fn do_install(shell_arg: Option<ShellArg>, force: bool) -> std::resul
     })
 }
 
-fn detect_shell_from_env() -> std::result::Result<ShellArg, ImoocsError> {
+pub(crate) fn detect_shell_from_env() -> std::result::Result<ShellArg, ImoocsError> {
     let s = std::env::var("SHELL").map_err(|_| {
         ImoocsError::Validation(
             "cannot detect shell: SHELL environment variable is not set; pass --shell <bash|zsh|fish>".into(),
@@ -196,7 +196,7 @@ fn parse_shell_name(shell_path: &str) -> Option<ShellArg> {
     }
 }
 
-fn completion_target_path(shell: ShellArg) -> std::result::Result<PathBuf, ImoocsError> {
+pub(crate) fn completion_target_path(shell: ShellArg) -> std::result::Result<PathBuf, ImoocsError> {
     let strategy = choose_base_strategy()
         .map_err(|e| ImoocsError::Internal(format!("cannot resolve XDG base directories: {e}")))?;
     let path = match shell {

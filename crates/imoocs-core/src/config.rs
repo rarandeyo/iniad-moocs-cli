@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::Path;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ImoocsError, Result};
@@ -40,7 +41,7 @@ pub struct AssignmentConfig {
 /// `y` と答えた場合のみ `force=true` を送る。ユーザが拒否する、または
 /// 非対話で実行された場合、CLI は API を呼ばずに Validation エラーで中断する
 /// (サーバ側下書きも残らない)。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ConfirmMode {
     Auto,
