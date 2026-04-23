@@ -1,7 +1,8 @@
 //! Error type and structured exit codes.
 //!
 //! Exit codes (see plan §CLI Design Principles #8):
-//!   0 Success, 1 API, 2 Auth, 3 Validation, 4 NotFound, 5 Internal, 6 Network, 7 NetworkRestricted.
+//!   0 Success, 1 API, 2 Auth, 3 Validation, 4 NotFound, 5 Internal, 6 Network,
+//!   7 NetworkRestricted, 8 NonPublic.
 
 use thiserror::Error;
 
@@ -18,6 +19,7 @@ pub enum ExitCode {
     Internal = 5,
     Network = 6,
     NetworkRestricted = 7,
+    NonPublic = 8,
 }
 
 impl ExitCode {
@@ -33,6 +35,9 @@ pub enum ImoocsError {
 
     #[error("network restricted: the course/problem requires access from INIAD internal network")]
     NetworkRestricted,
+
+    #[error("assignment not yet public (403) on {endpoint}")]
+    NonPublic { endpoint: String },
 
     #[error("validation error: {0}")]
     Validation(String),
@@ -70,6 +75,7 @@ impl ImoocsError {
         match self {
             Self::Auth { .. } => ExitCode::Auth,
             Self::NetworkRestricted => ExitCode::NetworkRestricted,
+            Self::NonPublic { .. } => ExitCode::NonPublic,
             Self::Validation(_) => ExitCode::Validation,
             Self::NotFound { .. } => ExitCode::NotFound,
             Self::Api(_) => ExitCode::Api,
@@ -82,6 +88,7 @@ impl ImoocsError {
         match self {
             Self::Auth { .. } => "AUTH_EXPIRED",
             Self::NetworkRestricted => "NETWORK_RESTRICTED",
+            Self::NonPublic { .. } => "NON_PUBLIC",
             Self::Validation(_) => "VALIDATION_ERROR",
             Self::NotFound { .. } => "NOT_FOUND",
             Self::Api(_) => "API_ERROR",
@@ -95,7 +102,39 @@ impl ImoocsError {
         match self {
             Self::Auth { hint, .. } => hint.as_deref(),
             Self::NetworkRestricted => Some("Connect to INIAD network (on-campus or VPN) and retry."),
+            Self::NonPublic { .. } => Some("Assignment not yet public (hidden until release). Wait for release or pick another problem."),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_public_maps_to_exit_8_and_hint() {
+        let e = ImoocsError::NonPublic {
+            endpoint: "/problem".into(),
+        };
+        assert_eq!(e.exit_code(), ExitCode::NonPublic);
+        assert_eq!(e.exit_code().as_u8(), 8);
+        assert_eq!(e.error_code(), "NON_PUBLIC");
+        let hint = e.hint().expect("hint should exist");
+        assert!(hint.contains("not yet public"), "hint was: {hint}");
+    }
+
+    #[test]
+    fn existing_variants_unchanged() {
+        assert_eq!(
+            ImoocsError::NetworkRestricted.exit_code(),
+            ExitCode::NetworkRestricted
+        );
+        assert_eq!(ImoocsError::NetworkRestricted.error_code(), "NETWORK_RESTRICTED");
+        assert_eq!(
+            ImoocsError::NotFound { what: "x".into() }.exit_code(),
+            ExitCode::NotFound
+        );
+        assert_eq!(ImoocsError::Api("x".into()).exit_code(), ExitCode::Api);
     }
 }
