@@ -5,10 +5,32 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
 
 ## Quick start
 
-1. **CLI をインストール**
+1. **CLI をインストール** — 下記いずれかの方法で。
+
+   **npm (Node 環境を持っている人):**
+   ```sh
+   npm install -g @rarandeyo/iniad-moocs-cli
+   # or: npx @rarandeyo/iniad-moocs-cli --help
+   ```
+
+   **Linux / macOS (shell installer):**
+   ```sh
+   curl --proto '=https' --tlsv1.2 -LsSf \
+     https://github.com/rarandeyo/iniad-moocs-cli/releases/latest/download/imoocs-cli-installer.sh | sh
+   ```
+
+   **Windows (PowerShell):**
+   ```powershell
+   irm https://github.com/rarandeyo/iniad-moocs-cli/releases/latest/download/imoocs-cli-installer.ps1 | iex
+   ```
+
+   **ソースから (Rust toolchain 必須):**
    ```sh
    cargo install --git https://github.com/rarandeyo/iniad-moocs-cli imoocs-cli
    ```
+
+   > 備考: `imoocs setup` はパスワードを OS の keyring に保存する。Linux は D-Bus secret-service
+   > (gnome-keyring / KeePassXC の secret-service 機能など) が動作している必要がある。
 
 2. **MOOCs / Google SSO にログイン**
    ```sh
@@ -16,6 +38,7 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
    ```
    INIAD の username/password を対話で入力すると、以降 `imoocs` が自動でログイン状態を保つ (password は OS のキーチェーンに保存)。
    途中で提出モードを `confirm` (TTY で `y` 確認・それ以外は中断) / `auto` (即確定) から選ぶ。詳細は [Config](#config) 参照。
+   shell 補完の自動配置もここで聞かれる (`--install-completion` で即実行 / `imoocs completion install` で後からでも可)。
 
 3. **2つのAgent skillをinstall**
    ```sh
@@ -63,7 +86,7 @@ confirm = "auto"
 ## Commands
 
 ```
-imoocs setup [--username <u>] [--password-stdin] [--skip-google]
+imoocs setup [--username <u>] [--password-stdin] [--skip-google] [--install-completion]
 imoocs auth {login,login-google,logout,status,export}
 imoocs course {list,show}
 imoocs lesson show <courseId> <lessonId> [--page <p>] [--fetch-slides] [--with-assignments]
@@ -71,7 +94,8 @@ imoocs slide fetch <embedUrl>
 imoocs assignment {list,show,answer,submit,upload}  # --url <url>, --lesson, --status 対応
 imoocs drive {list,fetch,folders}                   # list/fetch は SAML cookie で Drive、folders は course-drive-folders.toml を表示
 imoocs open <url>                                   # URL 1 本でルーティング
-imoocs {doctor,completion,version}
+imoocs completion {generate,install}                # generate=stdout / install=XDG 標準パスに配置
+imoocs {doctor,version}
 ```
 
 All commands output a stable JSON envelope:
