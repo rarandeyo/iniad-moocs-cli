@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::Args;
-use dialoguer::{theme::ColorfulTheme, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Select};
 use imoocs_core::{
     config::{AssignmentConfig, Config, ConfirmMode},
     envelope::ErrorDetail,
@@ -38,6 +38,10 @@ pub struct SetupArgs {
     /// slide fetching is not needed).
     #[arg(long)]
     pub skip_google: bool,
+
+    /// shell completion を XDG 標準パスに配置する (未指定かつ対話環境なら確認プロンプト)。
+    #[arg(long)]
+    pub install_completion: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -117,9 +121,9 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
     let mut failure: Option<ImoocsError> = None;
 
     if text_mode {
-        eprintln!("[1/4] INIAD MOOCs ログイン ...");
+        eprintln!("[1/5] INIAD MOOCs ログイン ...");
     }
-    tracing::info!("setup: step 1/4 authLogin");
+    tracing::info!("setup: step 1/5 authLogin");
     match auth::do_login(args.username.clone(), args.password_stdin).await {
         Ok(outcome) => {
             if text_mode {
@@ -140,14 +144,14 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
         steps.push(StepReport::skipped("authLoginGoogle", "prior step failed"));
     } else if args.skip_google {
         if text_mode {
-            eprintln!("[2/4] Google SSO ... skipped (--skip-google)");
+            eprintln!("[2/5] Google SSO ... skipped (--skip-google)");
         }
         steps.push(StepReport::skipped("authLoginGoogle", "--skip-google"));
     } else {
         if text_mode {
-            eprintln!("[2/4] Google SSO セッション取得 ...");
+            eprintln!("[2/5] Google SSO セッション取得 ...");
         }
-        tracing::info!("setup: step 2/4 authLoginGoogle");
+        tracing::info!("setup: step 2/5 authLoginGoogle");
         match auth::do_login_google().await {
             Ok(username) => {
                 if text_mode {
@@ -169,9 +173,9 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
         steps.push(StepReport::skipped("confirmMode", "prior step failed"));
     } else {
         if text_mode {
-            eprintln!("[3/4] 提出モード (assignment.confirm) ...");
+            eprintln!("[3/5] 提出モード (assignment.confirm) ...");
         }
-        tracing::info!("setup: step 3/4 confirmMode");
+        tracing::info!("setup: step 3/5 confirmMode");
         match ensure_confirm_mode(text_mode) {
             Ok(ConfirmModeOutcome::AlreadySet(mode)) => {
                 steps.push(StepReport::skipped(
@@ -196,9 +200,50 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
     }
 
     if failure.is_some() {
+        steps.push(StepReport::skipped("completionInstall", "prior step failed"));
+    } else {
+        let should_install = decide_completion_install(args.install_completion, text_mode);
+        if !should_install {
+            steps.push(StepReport::skipped("completionInstall", "not requested"));
+        } else {
+            if text_mode {
+                eprintln!("[4/5] shell completion の自動配置 ...");
+            }
+            tracing::info!("setup: step 4/5 completionInstall");
+            match crate::commands::completion::do_install(None, false) {
+                Ok(outcome) => {
+                    let marker = if outcome.wrote { "wrote" } else { "up to date" };
+                    if text_mode {
+                        eprintln!(
+                            "  ✓ {} → {} ({marker})",
+                            outcome.shell.name(),
+                            outcome.path.display()
+                        );
+                    }
+                    steps.push(StepReport::ok(
+                        "completionInstall",
+                        json!({
+                            "shell": outcome.shell.name(),
+                            "path": outcome.path.display().to_string(),
+                            "wrote": outcome.wrote,
+                        }),
+                    ));
+                }
+                Err(err) => {
+                    if text_mode {
+                        eprintln!("  ✗ {err}");
+                    }
+                    // dotfile 補助的なので setup 全体は継続する (failure には載せない)
+                    steps.push(StepReport::error("completionInstall", &err));
+                }
+            }
+        }
+    }
+
+    if failure.is_some() {
         steps.push(StepReport::skipped("doctor", "prior step failed"));
     } else {
-        tracing::info!("setup: step 4/4 doctor");
+        tracing::info!("setup: step 5/5 doctor");
         match doctor::compute_report().await {
             Ok(report) => {
                 let expected_green = report.moocs_authenticated && (args.skip_google || report.google_authenticated);
@@ -222,7 +267,7 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
                     };
                     if text_mode {
                         eprintln!(
-                            "[4/4] 最終診断: ✗ moocsAuthenticated={} googleAuthenticated={}",
+                            "[5/5] 最終診断: ✗ moocsAuthenticated={} googleAuthenticated={}",
                             report.moocs_authenticated, report.google_authenticated
                         );
                     }
@@ -235,7 +280,7 @@ pub async fn run(global: &GlobalArgs, args: SetupArgs) -> Result<ExitCode> {
             Err(e) => {
                 let err = ImoocsError::Internal(format!("doctor failed: {e}"));
                 if text_mode {
-                    eprintln!("[4/4] 最終診断: ✗ {err}");
+                    eprintln!("[5/5] 最終診断: ✗ {err}");
                 }
                 steps.push(StepReport::error("doctor", &err));
                 failure = Some(err);
@@ -330,8 +375,37 @@ fn step_ok_suffix(step: &str, details: &Value) -> String {
                 .unwrap_or(false);
             format!("(MOOCs={mooc}, Google={goog})")
         }
+        "completionInstall" => {
+            let shell = details.get("shell").and_then(|v| v.as_str()).unwrap_or("-");
+            let wrote = details.get("wrote").and_then(|v| v.as_bool()).unwrap_or(false);
+            let marker = if wrote { "wrote" } else { "up to date" };
+            format!("({shell}, {marker})")
+        }
         _ => String::new(),
     }
+}
+
+/// `install_completion` フラグ、および対話環境かを見て completion install を実行するか決める。
+/// - flag が指定されていれば無条件で実行
+/// - `--format json` のような非 text モードでは skip (dotfile 相当の副作用は agent に任せない)
+/// - 非対話 tty (pipe / CI) でも skip
+/// - text + tty 時は Confirm プロンプトでユーザに聞く (default Yes)
+fn decide_completion_install(flag: bool, text_mode: bool) -> bool {
+    if flag {
+        return true;
+    }
+    if !text_mode {
+        return false;
+    }
+    use std::io::IsTerminal as _;
+    if !std::io::stdin().is_terminal() {
+        return false;
+    }
+    Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("shell 補完を XDG 標準パスに配置しますか？")
+        .default(true)
+        .interact()
+        .unwrap_or(false)
 }
 
 enum ConfirmModeOutcome {

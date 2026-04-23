@@ -95,10 +95,10 @@ pub enum Command {
     Open(commands::open::OpenArgs),
     /// 初期セットアップウィザード: MOOCs ログイン、Google SSO、最終診断。
     Setup(commands::setup::SetupArgs),
-    /// shell completion script を stdout に出力する。
+    /// shell completion を stdout に出力 (`generate`) または XDG 標準パスに配置 (`install`) する。
     Completion {
-        #[arg(value_enum)]
-        shell: commands::completion::ShellArg,
+        #[command(subcommand)]
+        cmd: commands::completion::CompletionCommand,
     },
 }
 
@@ -114,6 +114,6 @@ pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Drive { cmd } => commands::drive::run(&cli.global, cmd).await,
         Command::Open(args) => commands::open::run(&cli.global, args).await,
         Command::Setup(args) => commands::setup::run(&cli.global, args).await,
-        Command::Completion { shell } => commands::completion::run(shell),
+        Command::Completion { cmd } => commands::completion::run(cmd),
     }
 }
