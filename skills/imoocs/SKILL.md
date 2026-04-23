@@ -74,14 +74,7 @@ URL や明示的な MOOCs の単語がなくても、履修 / 課題 / 出席 / 
 
 ### 「今日の」「最新回の」と言われたとき
 
-MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返さない。`course show` / `lesson show` の envelope に `scheduledAt` のような日付フィールドは無い。なので「今日の授業」「今週の」「最新回の」を CLI だけで厳密に特定することはできない。
-
-こう振る舞う:
-
-1. `imoocs course show <courseId>` で `lessons[]` を取得。`course.lessons[]` は講義ツリー上の並び順。
-2. 連番 (例: `AI-01` → `AI-02` → `AI-03`) の最終回を候補に据える。
-3. その lessonId を `imoocs lesson show` で開き、`embeds[]` や `assignments[]` が埋まっているか確認。空なら資料が未掲載 = まだ行われていない回の可能性が高いので、一つ前の回にフォールバックする。
-4. どれが「今日の」かに自信が持てない時点で、ユーザに lessonId と候補を提示して確認を取る。**全レッスンを無差別に `lesson show` で舐めない** — 候補は 2–3 件で十分。
+MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返さない。agent が「今日」「今週」「最新回」を推定しない。必ずユーザに具体的な lessonId (または URL) を聞いてから進む。連番の最新を決め打ちして資料を取りに行くと、未公開の回を掘ったり別レッスンの資料を返したりする。`imoocs course show <courseId>` で候補リストをユーザに提示して選ばせるのは OK。
 
 ## 典型フロー
 
@@ -117,7 +110,12 @@ MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返
 1. URL があれば `imoocs open <url>`。レッスンページなら `type: "lesson"` が返り、`markdown` 本文 + `embeds[]` + `assignments[]` が同梱される。
 2. スライドを PDF で欲しいと言われたら `imoocs lesson show <courseId> <lessonId> --fetch-slides` か、単発で `imoocs slide fetch <embedUrl>` を叩く。保存先は config / `--out-dir` で `/tmp/imoocs/slides/` (default) / `cache` / 絶対パスから選べる。
 3. PDF パスは `embeds[*].localPdfPath` に載る。必要なら Read tool で開いて読める (Linux なら `poppler-utils` が要る; 大きい場合は `pages` 指定で分割読み)。
-4. **スライドだけで要約が作れないときは Drive 添付も見る**。INIAD では本編コードや配布資料を Google Drive の zip (`ai-s02.zip` など) で配る運用があり、スライド PDF 側は「JupyterLab を起動して〜」の受講準備だけ、ということがある。そのときは同レッスンの `embeds[]` に `type: "google-drive"` のエントリがあるか確認し、あれば `imoocs drive fetch <fileId>` で落として展開してから内容を要約する。スライドの見た目が薄いのを「資料未公開」と早合点しない。
+4. **授業の配布物 (zip / PDF / ノートテンプレ) は Drive フォルダから探す**。INIAD は本編コード・データ・配布資料をコース専用の Google Drive フォルダにまとめる運用で、スライド PDF 側は受講準備 (環境構築など) だけのことがある。取り方:
+   1. `~/.config/imoocs/course-drive-folders.toml` を Read で開き、対象 `courseId` に紐づく `folderId` を引く。TOML が無い / 対象コースが未登録なら、先に `imoocs-drive-setup` skill を走らせてマッピングを作るようユーザに案内する (このスキルから呼ぶのではなく、ユーザの明示で起動する)。
+   2. `imoocs drive list <folderId>` で中身を列挙。年度フォルダや講義回別サブフォルダがあれば `drive list <subFolderId>` で下りる。
+   3. ファイル名 / lessonId / 更新日時から、該当レッスンの配布物として妥当な候補を 1–3 件に絞る (例: `ai-s02.zip`, `ai-s02-handout.pdf`)。確定できないときは候補をユーザに提示して選ばせる。勝手に確定しない。
+   4. `imoocs drive fetch <fileId>` で取得。保存先は `$XDG_CACHE_HOME/imoocs/drive/<fileId>.<ext>` (永続)。zip なら agent 側で展開して中身を要約する。
+   5. 補助: レッスン側の `embeds[*]` に `type: "google-drive"` が直接載っていれば、そちらが公式の配布物。TOML 経由より優先する。
 5. Drive ネイティブ形式 (Docs/Sheets/Slides) は現状 API 経由で落とせないので、UI リンクをユーザに案内する。
 
 ## 落とし穴 (必ず守ること)
