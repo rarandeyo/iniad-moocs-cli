@@ -14,6 +14,7 @@
 | 5 | `INTERNAL_ERROR` | CLI 側のバグや未対応 edge case | スタックトレースを付けて issue 報告を勧める。ユーザには無理に再試行させない |
 | 6 | `NETWORK_ERROR` | DNS / TCP / TLS 障害、proxy | ネットワーク復帰後に再試行。断続的なら一呼吸置く |
 | 7 | `NETWORK_RESTRICTED` | `/status: "network"` 応答。**学内 IP 限定リソース** | 「学内 / VPN で再実行を」と案内。他の課題は普通に進められる |
+| 8 | `NON_PUBLIC` | `assignment show` で未公開課題に触れたとき (`/status` / `/problem` / `/answers` が 403) | 「解禁を待つ」と案内するか、ユーザに別課題へ進む意思を確認する |
 
 ## `NETWORK_RESTRICTED` (exit 7) の扱い
 
@@ -24,6 +25,21 @@
 > この課題 (`ai-s02-attendance` など) は学内 IP 限定のようです。学内ネットワークか INIAD VPN に接続して `imoocs ...` を再実行してください。他の課題には影響しないので、そちらから片付けることもできます。
 
 誤って「全コースが学内限定」と伝えない。
+
+## `NON_PUBLIC` (exit 8) の扱い
+
+`assignment show` が exit 8 (`error.code: "NON_PUBLIC"`) を返すのは、対象課題が **まだ解禁されていない / 公開されていない** ときの正常な応答。MOOCs サーバ側で `/status` / `/problem` / `/answers` のどれかが 403 を返したケースで、通信障害ではない。
+
+典型例:
+- `atnd-lecture-01` など出席確認が、その週の講義が行われる前 (まだ問題 HTML が生成されていない)
+- `ai-03-quiz` など、講義スケジュールに沿って解禁を待っている課題
+- `assignment list --status nonpublic` で `derivedStatus: "nonpublic"` として見えていた課題を、show で掘ろうとしたとき
+
+ユーザに伝える文例:
+
+> この課題はまだ公開されていないようです (exit 8 / NON_PUBLIC)。講義開始後か、教員が解禁したタイミングで再度取得できるはずです。いま手を付けられる他の課題を優先しますか?
+
+`exit 4 / NOT_FOUND` (URL・ID の誤り) とは意味が違う。URL 誤りと混同して「ID を再確認して」と返さない。
 
 ## ログイン切れの復帰
 
