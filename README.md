@@ -44,6 +44,11 @@ AI agent (Claude Code など) から使うことを前提に作った [INIAD MOO
 
 ### `[assignment] confirm` の挙動
 
+| mode | 提出時の挙動 |
+|---|---|
+| 未設定 | Validation エラーで停止 (`imoocs setup` で選ぶか config を直接編集してください) |
+| `auto` | 即**確定** (AI agent に提出を任せる) |
+| `confirm` | TTY で `y` を押したときだけ**確定**。それ以外 (拒否 / 非対話 / EOF) は draft 保存せず中断 |
 
 例:
 
