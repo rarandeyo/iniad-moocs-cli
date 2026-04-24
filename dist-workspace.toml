@@ -25,6 +25,8 @@ npm-scope = "@rarandeyo"
 npm-package = "iniad-moocs-cli"
 # Publish jobs to run in CI
 publish-jobs = ["npm"]
+# CI (fmt/clippy/test) を plan 後に挟んで、失敗したら release を止める
+plan-jobs = ["./ci"]
 
 [dist.github-action-commits]
 "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"

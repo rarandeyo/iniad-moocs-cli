@@ -4,6 +4,7 @@ on:
     pull_request:
     push:
         branches: [main]
+    workflow_call:
 
 permissions:
     contents: read
@@ -14,8 +15,6 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            # libdbus-1-dev は keyring crate (sync-secret-service) の link に必要。
-            # runner image (ubuntu-24.04) に含まれる version を明示 pin する。
             - name: Install libdbus-1-dev
               run: |
                   sudo apt-get update
