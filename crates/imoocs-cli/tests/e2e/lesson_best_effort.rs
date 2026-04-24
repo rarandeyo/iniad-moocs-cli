@@ -9,8 +9,9 @@
 //! env: IMOOCS_E2E_USERNAME / _PASSWORD / _YEAR / _LESSON_URL
 //! 10.x すべて MOOCs 認証必要。10.3 は Google SSO 未ログイン (auth login-google を
 //! 呼ばない) 状態を TempXdg 隔離で作る。
-
-#![cfg(target_os = "linux")]
+//!
+//! Linux gating は main.rs の `#[cfg(target_os = "linux")] mod lesson_best_effort;`
+//! 側に集約 (clippy::duplicated_attributes 回避)。
 
 use serde_json::Value;
 
@@ -72,9 +73,7 @@ fn lesson_show_default_returns_lesson_with_assignments_shape() {
         "data.lesson should exist (LessonWithAssignments shape):\n{data:#}"
     );
     assert!(
-        data.get("assignments")
-            .and_then(Value::as_array)
-            .is_some(),
+        data.get("assignments").and_then(Value::as_array).is_some(),
         "data.assignments should be an array (even when empty):\n{data:#}"
     );
 }
@@ -91,15 +90,7 @@ fn lesson_show_with_no_fetch_slides_omits_fetch_status_field() {
 
     let assert = imoocs_in(&xdg)
         .env("IMOOCS_YEAR", &year)
-        .args([
-            "--format",
-            "json",
-            "lesson",
-            "show",
-            "--url",
-            &url,
-            "--no-fetch-slides",
-        ])
+        .args(["--format", "json", "lesson", "show", "--url", &url, "--no-fetch-slides"])
         .assert()
         .success();
     let data = assert_success_envelope(&assert.get_output().stdout);
@@ -133,15 +124,7 @@ fn lesson_show_without_google_sso_records_skipped_fetch_status() {
 
     let assert = imoocs_in(&xdg)
         .env("IMOOCS_YEAR", &year)
-        .args([
-            "--format",
-            "json",
-            "lesson",
-            "show",
-            "--url",
-            &url,
-            "--no-cache",
-        ])
+        .args(["--format", "json", "lesson", "show", "--url", &url, "--no-cache"])
         .assert()
         .success(); // exit 0 維持こそが best-effort 契約の本丸
     let data = assert_success_envelope(&assert.get_output().stdout);

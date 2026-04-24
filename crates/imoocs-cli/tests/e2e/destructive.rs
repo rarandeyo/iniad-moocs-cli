@@ -11,8 +11,9 @@
 //!
 //! 実行: `IMOOCS_E2E_ALLOW_DESTRUCTIVE=1 IMOOCS_E2E_USERNAME=... ... \`
 //!       `cargo test -p imoocs-cli --test e2e -- --ignored`
-
-#![cfg(target_os = "linux")]
+//!
+//! Linux gating は main.rs の `#[cfg(target_os = "linux")] mod destructive;`
+//! 側に集約 (clippy::duplicated_attributes 回避)。
 
 use rexpect::process::wait::WaitStatus;
 use serde_json::Value;
@@ -113,9 +114,7 @@ fn destructive_confirm_submit_then_pty_push_y_round_trips_to_server() {
         15_000,
     )
     .expect("spawn pty for push");
-    session
-        .exp_regex(r"Push staged.*\?")
-        .expect("see push prompt");
+    session.exp_regex(r"Push staged.*\?").expect("see push prompt");
     session.send_line("y").expect("send y");
 
     let status = session.process.wait().expect("wait child");

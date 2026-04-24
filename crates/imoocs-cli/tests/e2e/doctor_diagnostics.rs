@@ -13,10 +13,7 @@ fn doctor_with_clean_xdg_reports_unauthenticated_and_exits_2() {
     // 3.1: 認証情報も config も無い状態で doctor → exit 2 (AUTH_EXPIRED) +
     // success envelope (data.moocsAuthenticated=false)
     let xdg = TempXdg::new();
-    let assert = imoocs_in(&xdg)
-        .args(["doctor", "--format", "json"])
-        .assert()
-        .code(2);
+    let assert = imoocs_in(&xdg).args(["doctor", "--format", "json"]).assert().code(2);
     let data = assert_success_envelope(&assert.get_output().stdout);
     assert_eq!(
         data.get("moocsAuthenticated").and_then(Value::as_bool),
@@ -32,10 +29,7 @@ fn doctor_fails_on_invalid_config_with_exit_5() {
     // (移植元: 旧 tests/diagnostics.rs L30 doctor_fails_on_invalid_config)
     let xdg = TempXdg::new();
     xdg.write_config("not = [valid\n");
-    let assert = imoocs_in(&xdg)
-        .args(["doctor", "--format", "json"])
-        .assert()
-        .code(5);
+    let assert = imoocs_in(&xdg).args(["doctor", "--format", "json"]).assert().code(5);
     let view = assert_failure_envelope(&assert.get_output().stdout);
     assert!(
         view.message.contains("config toml parse error"),
@@ -51,10 +45,7 @@ fn doctor_fails_on_invalid_drive_folder_toml_with_exit_5() {
     let xdg = TempXdg::new();
     xdg.write_config("[assignment]\nconfirm = \"confirm\"\n");
     xdg.write_drive_folders("driveRootFolderId = 123\n");
-    let assert = imoocs_in(&xdg)
-        .args(["doctor", "--format", "json"])
-        .assert()
-        .code(5);
+    let assert = imoocs_in(&xdg).args(["doctor", "--format", "json"]).assert().code(5);
     let view = assert_failure_envelope(&assert.get_output().stdout);
     assert!(
         view.message.contains("course-drive-folders.toml parse error"),

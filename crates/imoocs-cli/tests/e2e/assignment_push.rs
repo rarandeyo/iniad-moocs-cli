@@ -62,11 +62,7 @@ fn push_in_non_tty_mode_with_staged_draft_exits_3_and_keeps_draft() {
 
     // 重要: TTY エラーでも draft は残存していなければならない
     // (agent safety の核: サーバに何も送らず、ユーザが TTY から再 push できる)
-    assert_eq!(
-        count_drafts(),
-        1,
-        "draft must be retained after non-TTY push failure"
-    );
+    assert_eq!(count_drafts(), 1, "draft must be retained after non-TTY push failure");
 }
 
 #[cfg(target_os = "linux")]
@@ -142,9 +138,7 @@ fn push_in_pty_with_n_response_cancels_and_keeps_draft() {
 
     // dialoguer ColorfulTheme は `Push staged draft to CS101/prob-a? ... [y/N]`
     // 形のプロンプトを吐く。ANSI escape が混じる可能性があるので regex で。
-    session
-        .exp_regex(r"Push staged.*\?")
-        .expect("see push prompt");
+    session.exp_regex(r"Push staged.*\?").expect("see push prompt");
     session.send_line("n").expect("send n");
 
     let status = session.process.wait().expect("wait child");
@@ -154,9 +148,5 @@ fn push_in_pty_with_n_response_cancels_and_keeps_draft() {
     }
 
     // draft 残存 (push 拒否で送信されない)
-    assert_eq!(
-        count_drafts(),
-        1,
-        "draft must be retained after `n` response"
-    );
+    assert_eq!(count_drafts(), 1, "draft must be retained after `n` response");
 }

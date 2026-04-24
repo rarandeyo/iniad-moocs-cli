@@ -5,9 +5,7 @@
 
 use serde_json::Value;
 
-use super::common::{
-    assert_failure_envelope, assert_success_envelope, imoocs_in, TempXdg, CONFIG_CONFIRM,
-};
+use super::common::{assert_failure_envelope, assert_success_envelope, imoocs_in, TempXdg, CONFIG_CONFIRM};
 
 #[test]
 fn drafts_list_in_clean_xdg_returns_empty_array() {
@@ -18,9 +16,7 @@ fn drafts_list_in_clean_xdg_returns_empty_array() {
         .assert()
         .success();
     let data = assert_success_envelope(&assert.get_output().stdout);
-    let arr = data
-        .as_array()
-        .unwrap_or_else(|| panic!("expected array: {data:#}"));
+    let arr = data.as_array().unwrap_or_else(|| panic!("expected array: {data:#}"));
     assert!(arr.is_empty(), "expected empty array, got: {data:#}");
 }
 
@@ -60,9 +56,7 @@ fn drafts_list_after_confirm_submit_returns_one_summary() {
         .assert()
         .success();
     let data = assert_success_envelope(&assert.get_output().stdout);
-    let arr = data
-        .as_array()
-        .unwrap_or_else(|| panic!("expected array: {data:#}"));
+    let arr = data.as_array().unwrap_or_else(|| panic!("expected array: {data:#}"));
     assert_eq!(arr.len(), 1, "expected 1 summary, got: {data:#}");
 
     let summary = &arr[0];
@@ -91,10 +85,7 @@ fn drafts_clear_without_args_emits_validation_error_listing_options() {
     // "requires" / "--all" を含むメッセージ
     // (commands/assignment.rs:537-541 の runtime check 由来)
     let xdg = TempXdg::new();
-    let assert = imoocs_in(&xdg)
-        .args(["assignment", "drafts", "clear"])
-        .assert()
-        .code(3);
+    let assert = imoocs_in(&xdg).args(["assignment", "drafts", "clear"]).assert().code(3);
     let view = assert_failure_envelope(&assert.get_output().stdout);
     assert_eq!(view.code, "VALIDATION_ERROR");
     assert!(

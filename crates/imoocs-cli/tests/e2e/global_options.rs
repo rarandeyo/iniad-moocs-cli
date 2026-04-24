@@ -15,20 +15,15 @@ fn version_envelope_is_identical_for_format_flag_and_env() {
     // (global flag と env が同じ意味であることの三角測量)
     let xdg = TempXdg::new();
 
-    let from_flag = imoocs_in(&xdg)
-        .args(["--format", "json", "version"])
-        .assert()
-        .success();
-    let envelope_flag: Value =
-        serde_json::from_slice(&from_flag.get_output().stdout).expect("envelope from flag");
+    let from_flag = imoocs_in(&xdg).args(["--format", "json", "version"]).assert().success();
+    let envelope_flag: Value = serde_json::from_slice(&from_flag.get_output().stdout).expect("envelope from flag");
 
     let from_env = imoocs_in(&xdg)
         .env("IMOOCS_FORMAT", "json")
         .arg("version")
         .assert()
         .success();
-    let envelope_env: Value =
-        serde_json::from_slice(&from_env.get_output().stdout).expect("envelope from env");
+    let envelope_env: Value = serde_json::from_slice(&from_env.get_output().stdout).expect("envelope from env");
 
     assert_eq!(
         envelope_flag, envelope_env,
@@ -50,7 +45,8 @@ fn course_list_with_year_2099_returns_failure_envelope() {
     let output = assert.get_output();
     let exit_code = output.status.code().expect("exit code");
     assert_ne!(
-        exit_code, 0,
+        exit_code,
+        0,
         "year=2099 should fail, got exit 0:\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),

@@ -8,8 +8,9 @@
 //! `rexpect::session::PtySession` spawns the binary on a Unix PTY and
 //! exposes `exp_regex` / `send_line` plus the underlying `Wait::wait` for
 //! exit-code retrieval.
-
-#![cfg(unix)]
+//!
+//! Module-level `#[cfg(unix)]` is on the `pub mod pty;` declaration in
+//! `common/mod.rs`, so we don't repeat it here (clippy::duplicated_attributes).
 
 use rexpect::error::Error;
 use rexpect::session::{spawn_command, PtySession};

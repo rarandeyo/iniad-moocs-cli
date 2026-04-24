@@ -28,7 +28,10 @@ fn help_lists_all_eleven_subcommands() {
     let assert = imoocs().arg("--help").assert().success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
     for sub in ALL_SUBCOMMANDS {
-        assert!(stdout.contains(sub), "help should mention `{sub}`:\n--- stdout ---\n{stdout}");
+        assert!(
+            stdout.contains(sub),
+            "help should mention `{sub}`:\n--- stdout ---\n{stdout}"
+        );
     }
 }
 
@@ -62,10 +65,7 @@ fn version_subcommand_emits_json_envelope_even_in_text_mode() {
 fn invalid_format_value_is_clap_error() {
     // 1.5: `imoocs --format yaml version` → exit ≠ 0 (clap value_enum)
     let xdg = TempXdg::new();
-    let assert = imoocs_in(&xdg)
-        .args(["--format", "yaml", "version"])
-        .assert()
-        .failure();
+    let assert = imoocs_in(&xdg).args(["--format", "yaml", "version"]).assert().failure();
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr).to_string();
     assert!(
         stderr.contains("invalid value") || stderr.contains("possible values"),
@@ -96,8 +96,7 @@ fn success_envelope_has_no_error_key() {
     // 2.3: success envelope に `error` キーが無い (untagged enum / SuccessFlag 由来)
     let xdg = TempXdg::new();
     let assert = imoocs_in(&xdg).arg("version").assert().success();
-    let envelope: Value =
-        serde_json::from_slice(&assert.get_output().stdout).expect("envelope is JSON");
+    let envelope: Value = serde_json::from_slice(&assert.get_output().stdout).expect("envelope is JSON");
     assert!(
         envelope.get("error").is_none(),
         "success envelope must not contain `error`:\n{envelope:#}"
@@ -118,8 +117,7 @@ fn failure_envelope_has_no_data_key() {
         .args(["assignment", "submit", "CS101", "prob-a", "--data", "{}"])
         .assert()
         .code(3);
-    let envelope: Value =
-        serde_json::from_slice(&assert.get_output().stdout).expect("envelope is JSON");
+    let envelope: Value = serde_json::from_slice(&assert.get_output().stdout).expect("envelope is JSON");
     assert!(
         envelope.get("data").is_none(),
         "failure envelope must not contain `data`:\n{envelope:#}"
@@ -130,4 +128,3 @@ fn failure_envelope_has_no_data_key() {
         "failure envelope must have `success: false`:\n{envelope:#}"
     );
 }
-

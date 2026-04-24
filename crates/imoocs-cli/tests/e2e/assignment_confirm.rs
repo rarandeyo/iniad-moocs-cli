@@ -9,9 +9,7 @@
 
 use serde_json::Value;
 
-use super::common::{
-    assert_failure_envelope, assert_success_envelope, imoocs_in, TempXdg, CONFIG_CONFIRM,
-};
+use super::common::{assert_failure_envelope, assert_success_envelope, imoocs_in, TempXdg, CONFIG_CONFIRM};
 
 /// 4.2-4.4 で共通: stage された draft が `staged=true` を返し、
 /// `<XDG_STATE_HOME>/imoocs/drafts/` に JSON 1 件だけ存在し、その中身に
@@ -134,14 +132,7 @@ fn submit_with_invalid_json_payload_emits_validation_error() {
     xdg.write_config(CONFIG_CONFIRM);
     let assert = imoocs_in(&xdg)
         .env("IMOOCS_YEAR", "2026")
-        .args([
-            "assignment",
-            "submit",
-            "CS101",
-            "prob-a",
-            "--data",
-            "not-json",
-        ])
+        .args(["assignment", "submit", "CS101", "prob-a", "--data", "not-json"])
         .assert()
         .code(3);
     let view = assert_failure_envelope(&assert.get_output().stdout);

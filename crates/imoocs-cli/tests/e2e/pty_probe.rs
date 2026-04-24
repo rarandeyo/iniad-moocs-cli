@@ -8,8 +8,9 @@
 //! `--version` を選んだ理由: 副作用ゼロ、HTTP 不要、stdout に決定論的な
 //! `imoocs <ver>` 1 行を吐くだけ。dialoguer に依存しないので「PTY 自体が
 //! 動くか」と「dialoguer が PTY で何を吐くか」を切り分けられる。
-
-#![cfg(target_os = "linux")]
+//!
+//! Linux gating は main.rs の `#[cfg(target_os = "linux")] mod pty_probe;`
+//! 側に集約 (clippy::duplicated_attributes 回避)。
 
 use rexpect::error::Error;
 
