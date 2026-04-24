@@ -5,7 +5,7 @@
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-04-25
+## [v0.2.0]
 
 ### Added
 - `imoocs reset` サブコマンド: `auth` / `config` / `cache` / `drafts` / `all` の領域別に状態を初期化。`--dry-run` / `--yes` 対応。
@@ -25,10 +25,10 @@
 - `imoocs-drive-setup` skill の名前正規化規範 (NFKC / ローマ数字 / 中黒 / 旧新名併記) を整備。
 - README の agent skill インストール手順を刷新。
 
-## [0.1.0] - 2026-04-25
+## [v0.1.0]
 
 初回安定リリース。詳細は GitHub Releases を参照。
 
 [Unreleased]: https://github.com/rarandeyo/iniad-moocs-cli/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/rarandeyo/iniad-moocs-cli/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/rarandeyo/iniad-moocs-cli/releases/tag/v0.1.0
+[v0.2.0]: https://github.com/rarandeyo/iniad-moocs-cli/compare/v0.1.0...v0.2.0
+[v0.1.0]: https://github.com/rarandeyo/iniad-moocs-cli/releases/tag/v0.1.0
