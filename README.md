@@ -73,7 +73,7 @@
    ```sh
    imoocs doctor
    ```
-   認証・設定・completion・skill・Drive フォルダを一括検査する。最後の行が
+   認証・設定・completion・Drive フォルダを一括検査する。最後の行が
    `Quick start: ✓ 全項目クリア` になれば Quick start 完了。⚠ が残っていれば該当 step に戻る。
    JSON envelope の `quickStartComplete: true` も同じ判定に使える。
 

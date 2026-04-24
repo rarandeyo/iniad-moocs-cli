@@ -453,9 +453,7 @@ pub struct DoctorReport {
     pub confirm_mode: Option<ConfirmMode>,
     /// 現在の shell 向け completion の配置状況。shell 検出不能または未対応なら `None`。
     pub completion: Option<CompletionStatus>,
-    /// agent skill の検出結果 (`gh skill list` → filesystem fallback)。
-    pub skills: SkillDetectionReport,
-    /// critical (auth) と warn (confirm/completion/drive/skills) が全て ✓ のとき true。
+    /// critical (auth) と warn (confirm/completion/drive) が全て ✓ のとき true。
     pub quick_start_complete: bool,
 }
 
@@ -473,20 +471,4 @@ pub struct CompletionStatus {
     pub shell: String,
     pub path: PathBuf,
     pub installed: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillDetectionReport {
-    pub method: SkillDetectionMethod,
-    pub imoocs: bool,
-    pub imoocs_drive_setup: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum SkillDetectionMethod {
-    Gh,
-    Filesystem,
-    Unknown,
 }
