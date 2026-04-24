@@ -4,3 +4,6 @@ rust = { version = "1.93.1", profile = "default" }
 
 [env]
 RUST_LOG = "info"
+
+[settings]
+lockfile = true
