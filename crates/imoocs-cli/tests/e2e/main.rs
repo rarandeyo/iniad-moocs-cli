@@ -8,6 +8,8 @@ mod completion;
 mod destructive;
 mod doctor_diagnostics;
 mod global_options;
+#[cfg(target_os = "linux")]
+mod lesson_best_effort;
 mod plumbing;
 #[cfg(target_os = "linux")]
 mod pty_probe;
