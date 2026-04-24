@@ -113,6 +113,18 @@ pub enum OpenResult {
     Assignment(AssignmentDetail),
 }
 
+/// `Embed::GoogleSlides` の PDF 取得 best-effort 結果。未取得なら `None`、
+/// `lesson show` / `open` のデフォルト fetch を通ったあとは `Ok` / `Skipped` /
+/// `Failed` のいずれかになる。`Skipped` は Google SSO が未ログインで取りに
+/// 行かなかったケース、`Failed` はネットワーク等の実エラーで取れなかったケース。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FetchStatus {
+    Ok,
+    Skipped,
+    Failed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Embed {
@@ -129,6 +141,8 @@ pub enum Embed {
         page_count: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         fetched_at: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fetch_status: Option<FetchStatus>,
     },
     #[serde(rename_all = "camelCase")]
     GoogleDrive {

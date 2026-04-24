@@ -16,7 +16,7 @@ use std::future::Future;
 use imoocs_core::api::slides::{fetch_slide_pdf, SlideFetchResult};
 use imoocs_core::config::Config;
 use imoocs_core::paths::{resolve_slides_out_dir, Paths, DEFAULT_SLIDES_OUT_DIR};
-use imoocs_core::schemas::Embed;
+use imoocs_core::schemas::{Embed, FetchStatus};
 use imoocs_core::session::Session;
 use imoocs_core::Result;
 
@@ -57,6 +57,7 @@ where
             size_bytes,
             page_count,
             fetched_at,
+            fetch_status,
             ..
         } = embed
         {
@@ -67,6 +68,7 @@ where
                 *page_count = Some(res.page_count);
             }
             *fetched_at = Some(res.fetched_at);
+            *fetch_status = Some(FetchStatus::Ok);
         }
     }
     Ok(())
@@ -89,6 +91,7 @@ mod tests {
             size_bytes: None,
             page_count: None,
             fetched_at: None,
+            fetch_status: None,
         }
     }
 
@@ -124,12 +127,14 @@ mod tests {
                 size_bytes,
                 page_count,
                 fetched_at,
+                fetch_status,
                 ..
             } => {
                 assert_eq!(local_pdf_path.as_ref(), Some(&PathBuf::from("/tmp/slide-a.pdf")));
                 assert_eq!(*size_bytes, Some(42));
                 assert_eq!(*page_count, Some(3));
                 assert_eq!(fetched_at.as_deref(), Some("2026-04-24T00:00:00Z"));
+                assert_eq!(*fetch_status, Some(FetchStatus::Ok));
             }
             other => panic!("expected google slides, got {other:?}"),
         }
@@ -163,10 +168,12 @@ mod tests {
             Embed::GoogleSlides {
                 local_pdf_path,
                 size_bytes,
+                fetch_status,
                 ..
             } => {
                 assert_eq!(local_pdf_path.as_ref(), Some(&PathBuf::from("/tmp/slide-a.pdf")));
                 assert_eq!(*size_bytes, Some(7));
+                assert_eq!(*fetch_status, Some(FetchStatus::Ok));
             }
             other => panic!("expected google slides, got {other:?}"),
         }
@@ -174,10 +181,12 @@ mod tests {
             Embed::GoogleSlides {
                 local_pdf_path,
                 size_bytes,
+                fetch_status,
                 ..
             } => {
                 assert!(local_pdf_path.is_none());
                 assert!(size_bytes.is_none());
+                assert!(fetch_status.is_none());
             }
             other => panic!("expected google slides, got {other:?}"),
         }

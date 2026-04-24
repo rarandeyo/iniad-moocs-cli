@@ -87,6 +87,7 @@ pub fn scrape_lesson_content(html: &str) -> Result<LessonContentRaw> {
                 size_bytes: None,
                 page_count: None,
                 fetched_at: None,
+                fetch_status: None,
             });
         } else if let Some(caps) = DRIVE_FILE_RE.captures(&src) {
             let id = caps.get(1).map(|m| m.as_str().to_string()).unwrap_or_default();
