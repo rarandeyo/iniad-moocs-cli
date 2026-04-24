@@ -94,16 +94,78 @@
 }
 ```
 
-### AnswerResult (`submit`)
+### AnswerResult (`submit` — auto モードのみ)
 ```json
 { "ok": true, "status": "open",
   "submitted": true, "savedAt": "2026-04-20T00:00:00Z" }
 ```
 
-`submit` が exit 0 で返ったときの envelope。`submitted` は常に `true`
-(CLI は確定のみを扱うため)。`confirm` モードで人間が拒否した場合や
-非 TTY で止まった場合は exit 3 / `VALIDATION_ERROR` で中断し、この
-envelope は返らない。
+`auto` モードで `submit` が exit 0 を返したとき、または `push` 内部で
+`put_answers` が返す結果型。`submitted` は常に `true`。`confirm` モードの
+`submit` はこの型ではなく `StagedResult` を返す (下記)。
+
+### StagedResult (`submit` / `upload` — confirm モード)
+```json
+{
+  "staged": true,
+  "submitted": false,
+  "draftPath": "/home/me/.local/state/imoocs/drafts/2026-CS101-prob-a.json",
+  "year": 2026, "courseId": "CS101", "problemId": "prob-a",
+  "answers": { "p1": "..." },
+  "files": { "html": "/abs/path/report.html" },
+  "hint": "Draft staged locally. Run `imoocs assignment push CS101 prob-a` from your TTY to finalise."
+}
+```
+
+`confirm` モードで `submit` / `upload` が exit 0 を返したときの envelope。
+HTTP は叩かれておらず、サーバ状態は変化していない。ユーザに draft の中身を
+見せて、TTY で `imoocs assignment push` を叩いてもらうのが正しい次手順。
+
+### UploadResult (`upload`)
+```json
+{ "ok": true, "pid": "html",
+  "staged": true, "submitted": false,
+  "draftPath": "/home/me/.local/state/imoocs/drafts/2026-CS101-prob-a.json" }
+```
+
+`auto` モードでは `{ "ok": true, "pid": "...", "staged": false, "submitted": true }`
+(`draftPath` は省略)、`confirm` モードでは `staged: true / submitted: false` +
+`draftPath`。
+
+### PushResult (`push`)
+```json
+{
+  "pushed": true, "submitted": true,
+  "year": 2026, "courseId": "CS101", "problemId": "prob-a",
+  "answersSubmittedPids": ["p1", "p2"],
+  "filesSubmittedPids": ["html"],
+  "status": "open"
+}
+```
+
+`push` が全 HTTP を成功させたときの envelope。途中で `put_answers` /
+`post_file` が失敗した場合はこの型ではなく `API_ERROR` / `NETWORK_ERROR` が
+返り、draft は保持される。
+
+### Draft / DraftSummary (`drafts show` / `drafts list`)
+```json
+// Draft — drafts show の応答
+{
+  "year": 2026, "courseId": "CS101", "problemId": "prob-a",
+  "answers": { "p1": "value" },
+  "files": { "html": "/abs/path/report.html" },
+  "updatedAt": "2026-04-24T10:00:00Z"
+}
+
+// DraftSummary — drafts list の 1 要素
+{
+  "year": 2026, "courseId": "CS101", "problemId": "prob-a",
+  "answerPids": ["p1"],
+  "filePids": ["html"],
+  "updatedAt": "2026-04-24T10:00:00Z",
+  "path": "/home/me/.local/state/imoocs/drafts/2026-CS101-prob-a.json"
+}
+```
 
 ### OpenResult (`imoocs open`)
 tag-based enum with `type`:

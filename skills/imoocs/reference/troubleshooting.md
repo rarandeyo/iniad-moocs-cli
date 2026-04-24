@@ -53,19 +53,30 @@ imoocs auth status
 - Google (スライド PDF / Drive) 側の切れは `imoocs auth login-google`。`imoocs doctor --format json` の `googleAuthenticated` が false ならここを案内。
 - 両方まとめて確認するなら `imoocs doctor`。テキスト要約でも十分な情報が出る。機械処理したいときは `--format json`。
 
-## `submit` / `upload` が exit 3 (`VALIDATION_ERROR`) で止まる
+## `assignment push` が exit 3 (`VALIDATION_ERROR`) で止まる
 
-`assignment.confirm = "confirm"` 設定下で以下のどれかが起きた場合、CLI は**API を呼ばずに中断**する (サーバ状態は変わらない):
+`push` は stage した draft をサーバに確定送信するコマンド。以下のどれかで中断する (`put_answers` / `post_file` は呼ばれていない、draft は保持):
 
 - 非 TTY (agent / パイプ / CI) から呼ばれた
 - TTY プロンプトで `n` を押した / EOF で閉じた
+- `assignment.confirm` が未設定 (`imoocs setup` を走らせる)
 
-`error.hint` を読んでユーザに状況を伝え、どう進めるか判断を仰ぐ。勝手に再試行したり `--data` を書き換えて再送したりしない。選択肢は 2 つ:
+agent の正しい反応: `error.hint` / `error.message` をそのままユーザに伝え、TTY から `imoocs assignment push <courseId> <problemId>` を叩いてもらうよう依頼する。draft の中身を先に見せたいなら `imoocs assignment drafts show <courseId> <problemId>` で表示できる。勝手に再試行しない。
 
-1. TTY (対話シェル) から `imoocs assignment submit ...` を叩き直す
-2. `~/.config/imoocs/config.toml` の `[assignment] confirm` を `"auto"` に変更 (agent に委任する意思があるときのみ)
+注記: `confirm` モードの `submit` / `upload` は **exit 3 では止まらない**。サーバに送らずローカル draft に stage するだけなので、exit 0 + envelope `staged: true, submitted: false` が正常応答。「submit は成功したがサーバに反映されない」のは仕様通りで、`push` を叩くまで finalise されない。
 
 その他の exit 3 は引数不備 (`--data` の JSON 形式 / 初回セットアップ未了) が原因。`error.hint` と `imoocs setup` / `imoocs assignment show` で分岐。
+
+## `assignment push` が exit 1 / 6 で途中失敗する
+
+`push` は `put_answers` → 各 `post_file` を順次叩く複数 HTTP リクエストで、transaction は無い。途中で 5xx / ネットワーク断が起きるとそこで止まり、**サーバ側は部分確定の可能性あり** (answers は送れて files の一部が未送、など)。
+
+agent の対応:
+
+- draft は自動的に保持される (`error.message` に "Draft retained at \<path\>. Re-run `imoocs assignment push` to resume." が入る)
+- ユーザには「サーバ側で answers だけ確定している可能性がある。再 `push` で冪等に整合する」と案内
+- `put_answers` は `force=true` で answers を上書きする冪等操作、`post_file` も pid 単位で上書きなので、再 `push` で副作用なく resume できる
+- 連続で失敗するなら MOOCs 側の一時障害を疑って時間を置く
 
 ## スライド PDF が消えた / 見つからない
 

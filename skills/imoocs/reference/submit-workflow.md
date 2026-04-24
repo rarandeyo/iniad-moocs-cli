@@ -85,7 +85,7 @@ CLI にはサーバ下書きを積む verb は無い。テキスト / ラジオ 
 
 この段階では MOOCs サーバに何も送らない。agent は JSON の中身をユーザに提示し、「これで提出して良いか」を確認する。
 
-## 4. 確定提出 (テキスト系)
+## 4. submit (テキスト系) — auto なら確定、confirm なら stage
 
 ユーザが明示的に「出して」「提出して」と言ったときだけ叩く:
 
@@ -101,31 +101,51 @@ imoocs assignment submit <courseId> <problemId> --data @/tmp/draft.json
 
 `assignment.confirm` 設定によって挙動が切り替わる:
 
-- `auto` → 即確定 (force=true を送る)
-- `confirm` + TTY → プロンプトで `y/n`。`y` のみ確定。
-- `confirm` + 非 TTY (agent / パイプ) → **API を呼ばずに exit 3 で停止**。サーバ状態は変化しない。
+- `auto` → 即サーバ確定 (force=true, envelope は `AnswerResult { submitted: true }`)
+- `confirm` → **サーバに送らずローカル `$XDG_STATE_HOME/imoocs/drafts/` に stage** (TTY/非 TTY 共通、envelope は `StagedResult { staged: true, submitted: false, draftPath, hint }`)
+- 未設定 → exit 3 (`VALIDATION_ERROR`)。`imoocs setup` を案内
 
-exit 0 で確定成功。envelope の `submitted` は常に `true` になる。
+`confirm` モードの submit は agent が安全に叩ける (サーバに触らない)。ユーザに envelope の `draftPath` と `answers` を見せ、`push` の実行を依頼する (§5.5)。
 
-## 5. 確定提出 (ファイル)
+## 5. upload (ファイル) — auto なら確定、confirm なら stage
 
 ```sh
 imoocs assignment upload <courseId> <problemId> --pid <pid> <path>
 ```
 
-このコマンドは**常に確定**する (`--force` フラグは存在しない)。confirm ゲートはテキスト系 `submit` と同じ。Content-Type は CLI が `mime_guess` で自動設定するので agent は意識しなくて良い。
+テキスト系 submit と同じゲート軸。`auto` なら即サーバ確定 (POST /file)、`confirm` なら draft の `files[pid]` に **絶対パス** で記録されるだけ。Content-Type は CLI が `mime_guess` で自動設定する。
 
-アップロード後に `imoocs assignment show` を再度叩き、`fields[*].uploadedFile` が non-null になっていることを確認する。
+`confirm` モードで upload を重ねると、`files[pid]` は pid ごとに独立上書き、`answers` とは干渉しない。複数 pid の成果物を順次積んで、最後に `push` で一括確定できる。
+
+## 5.5. `push` — stage した draft をサーバに確定送信する
+
+`confirm` モードで作った stage は、TTY 必須の `push` コマンドでサーバに送る:
+
+```sh
+imoocs assignment push <courseId> <problemId>
+# or: imoocs assignment push --url <lesson-page-url>
+```
+
+- TTY 必須。agent (非 TTY) から叩くと exit 3 (`VALIDATION_ERROR`)。draft は保持。
+- 対話プロンプトで `y` を押すと `put_answers(force=true)` → 各 `post_file(force=true)` を順次送信。
+- 全部成功したら draft ファイルを削除し、envelope `PushResult { pushed: true, submitted: true, answersSubmittedPids, filesSubmittedPids, status }` を返す。
+- 途中失敗 (サーバ 5xx / ネットワーク断など) は draft を残して exit 1/6。`error.message` に「Draft retained at \<path\>. Re-run \`imoocs assignment push\` to resume.」が入る。**サーバ側は部分確定の可能性あり**（answers は送れて files が一部未送など）。再 `push` は冪等に整合するので、素直に再実行する。
+
+auto モードでも `push` は動く (stage があれば)。stage 無しで叩いたら `NOT_FOUND` (exit 4)。
+
+agent は `push` を叩かない。envelope の `hint` をそのままユーザに伝えて「TTY で実行して」と依頼する。勝手にリトライしない。
 
 ## 6. 事後確認
 
-確定後、`imoocs assignment show <courseId> <problemId>` を叩き直して:
+`push` 成功後、`imoocs assignment show <courseId> <problemId>` を叩き直して:
 
 - `status` が `open` / `graded` / `closed` のどれか
 - `fields[*].currentValue` / `uploadedFile` が埋まっている
 - `derivedStatus` が `submitted` に遷移している (open かつ全 pid 埋まり)
 
 が成立していることを確認してからユーザに報告する。
+
+`auto` モードの submit/upload で直接確定した場合も同じ手順で確認する。
 
 ## 7. 未提出棚卸し
 
@@ -146,7 +166,12 @@ imoocs assignment list <courseId> --status pending
 | 症状 | 対処 |
 |---|---|
 | `exit 2` / `AUTH_EXPIRED` | `imoocs auth login` を案内 / 実行して再試行 |
-| `exit 3` / `VALIDATION_ERROR` (confirm モード) | `assignment.confirm = "confirm"` 設定下で `submit` / `upload` が非 TTY (agent / パイプ) から呼ばれた、あるいは TTY で `n` が押された。**API は呼ばれていないのでサーバ状態は変わっていない**。ユーザにその旨を伝え、TTY から再実行してもらうか `confirm = "auto"` への切替を提案する |
-| `exit 3` / `VALIDATION_ERROR` (その他) | `error.hint` を読む。初回セットアップが未了なら `imoocs setup` を案内。`--data` の JSON 不備なら `assignment show` で `fields[*].pid` を再確認 |
-| `exit 4` / `NOT_FOUND` | URL / problemId を再確認。`course show` → `lesson show` で辿り直す |
+| `exit 3` / `VALIDATION_ERROR` (`push` を非 TTY で実行) | `assignment push` は TTY 必須。agent / パイプから叩くと exit 3 で止まる (API は呼ばれていない、draft 保持)。ユーザに TTY から `imoocs assignment push <c> <p>` を叩くよう依頼する |
+| `exit 3` / `VALIDATION_ERROR` (`push` プロンプトで `n` / EOF) | `push` 対話で拒否された。draft はそのまま保持されている。ユーザが準備できたら再 `push` すればよい |
+| `exit 3` / `VALIDATION_ERROR` (config 未設定) | `assignment.confirm` 未設定で submit / push を叩いた。`imoocs setup` を案内 |
+| `exit 3` / `VALIDATION_ERROR` (その他) | `error.hint` を読む。`--data` の JSON 不備なら `assignment show` で `fields[*].pid` を再確認 |
+| `exit 4` / `NOT_FOUND` (`push`) | 該当 draft が `$XDG_STATE_HOME/imoocs/drafts/` に無い。先に `imoocs assignment submit` / `upload` で stage する |
+| `exit 4` / `NOT_FOUND` (その他) | URL / problemId を再確認。`course show` → `lesson show` で辿り直す |
+| `exit 1` / `API_ERROR` (`push` 途中失敗) | `put_answers` または途中の `post_file` が 5xx で落ちた。draft は保持されているので、しばらく置いて再 `push`。answers は force=true で冪等に再送されるので副作用なし。サーバ側で answers だけ確定している可能性はある (部分確定) |
+| `exit 6` / `NETWORK_ERROR` (`push` 途中失敗) | 通信断で push が途切れた。`API_ERROR` と同じく再 `push` で resume する |
 | `exit 7` / `NETWORK_RESTRICTED` | 出席確認など学内限定の課題のみ。学内 / VPN で再実行を案内 |

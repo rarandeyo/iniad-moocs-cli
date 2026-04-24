@@ -41,7 +41,7 @@
 
    1. **INIAD MOOCs ログイン** — username / password を対話入力 (password は OS のキーチェーンに保存)
    2. **Google SSO セッション取得** — 自動
-   3. **提出モード** (`assignment.confirm`) — `confirm` (TTY で `y` 確認・それ以外は中断) / `auto` (即確定) の 2 択。詳細は [Config](#config)
+   3. **提出モード** (`assignment.confirm`) — `confirm` (submit/upload は local stage、確定は TTY で `imoocs assignment push`) / `auto` (submit/upload で即確定) の 2 択。詳細は [Config](#config)
    4. **shell 補完の自動配置** — XDG 標準パスに配置するか確認
 
 3. **2つのAgent skillをinstall**
@@ -76,17 +76,22 @@
 | key | 値 | デフォルト | 用途 |
 |---|---|---|---|
 | `[slides] out_dir` | `"cache"` / `"tmp"` / 絶対パス | `"tmp"` | `imoocs slide fetch` / `imoocs lesson show --fetch-slides` の PDF 保存先。`"cache"` は `$XDG_CACHE_HOME/imoocs/slides/`、`"tmp"` は `/tmp/imoocs/slides/` (OS が自動クリーンアップ)。 |
-| `[assignment] confirm` | `"auto"` / `"confirm"` | 未設定 (エラー) | `imoocs assignment submit` / `imoocs assignment upload` の確定挙動。下表参照。 |
+| `[assignment] confirm` | `"auto"` / `"confirm"` | 未設定 (エラー) | `submit` / `upload` の挙動 (即サーバ確定 or ローカル stage)。下表参照。 |
 
 ### `[assignment] confirm` の挙動
 
-`submit` / `upload` は常に「確定」を意図するコマンドで、下書き保存専用の verb は存在しない。`assignment.confirm` でゲートの強さを切り替える:
+`submit` / `upload` と `push` で 2-step 運用を切り替える軸。`submit` / `upload` は
+「答案を記録する」verb、`push` は「stage した draft をサーバに確定送信する」verb。
 
-| mode | 提出時の挙動 |
-|---|---|
-| 未設定 | Validation エラーで停止 (`imoocs setup` で選ぶか config を直接編集してください) |
-| `auto` | 確認なしで即**確定** |
-| `confirm` | TTY で `y` を押したときだけ**確定**。それ以外 (拒否 / 非対話 / EOF) は API を呼ばずに中断しサーバ状態は変化しない |
+| mode | `submit` / `upload` | `push` |
+|---|---|---|
+| 未設定 | Validation エラーで停止 (`imoocs setup` で選ぶか config を直接編集してください) | 同左 |
+| `auto` | 確認なしで即**サーバ確定**（従来互換） | stage があればサーバ確定、無ければ `NOT_FOUND` |
+| `confirm` | **ローカル draft に stage するだけ**（TTY/非 TTY 共通、サーバ未送信）。`$XDG_STATE_HOME/imoocs/drafts/` に保存される | TTY 必須。対話プロンプトで `y` を押したときだけ `put_answers(force=true)` と各 `post_file(force=true)` を順次送信 |
+
+`confirm` モードは AI agent がうっかり `submit` を叩いてもサーバに副作用が出ない
+安全装置。ユーザは agent が提示した draft の中身を確認してから、TTY で
+`imoocs assignment push` を叩いて確定する 2-step フローになる。
 
 例:
 
@@ -106,7 +111,8 @@ imoocs auth {login,login-google,logout,status,export}
 imoocs course {list,show}
 imoocs lesson show <courseId> <lessonId> [--page <p>] [--fetch-slides] [--with-assignments]
 imoocs slide fetch <embedUrl>
-imoocs assignment {list,show,submit,upload}         # --url <url>, --lesson, --status 対応 (submit/upload は常に確定)
+imoocs assignment {list,show,submit,upload,push,drafts}  # confirm モードでは submit/upload は stage のみ、push で確定
+imoocs assignment drafts {list,show,clear}               # $XDG_STATE_HOME/imoocs/drafts/ の操作
 imoocs drive {list,search,fetch,folders}            # search/list/fetch は SAML cookie で Drive、folders は course-drive-folders.toml を表示
 imoocs open <url>                                   # URL 1 本でルーティング
 imoocs completion {generate,install}                # generate=stdout / install=XDG 標準パスに配置
