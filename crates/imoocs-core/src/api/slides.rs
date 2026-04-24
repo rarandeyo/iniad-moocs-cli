@@ -19,6 +19,7 @@ use tracing::{debug, info, warn};
 use crate::auth::is_logged_in_google;
 use crate::error::{ImoocsError, Result};
 use crate::paths::Paths;
+use crate::schemas::FetchStatus;
 use crate::session::Session;
 
 const SLIDES_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
@@ -38,6 +39,19 @@ pub struct SlideFetchResult {
     pub from_cache: bool,
 }
 
+/// `fetch_best_effort` の結果。失敗しても exit を落とさない `lesson show` /
+/// `open` のデフォルトフローで使う。`status` が `FetchStatus::Ok` 以外のときは
+/// path / サイズなどのメタデータはすべて `None`。
+#[derive(Debug)]
+pub struct FetchOutcome {
+    pub status: FetchStatus,
+    pub local_pdf_path: Option<PathBuf>,
+    pub size_bytes: Option<u64>,
+    pub page_count: Option<u32>,
+    pub fetched_at: Option<String>,
+    pub from_cache: bool,
+}
+
 pub async fn fetch_slide_pdf(
     session: &Session,
     paths: &Paths,
@@ -45,6 +59,62 @@ pub async fn fetch_slide_pdf(
     no_cache: bool,
 ) -> Result<SlideFetchResult> {
     fetch_slide_pdf_with_dump(session, paths, embed_url, no_cache, None).await
+}
+
+/// `fetch_slide_pdf` の薄い best-effort ラッパ。Google SSO が未ログインなら
+/// `Skipped`、ネットワーク等の実エラーなら `Failed` に倒し、いずれも stderr に
+/// `tracing::warn!` を 1 行出す (`--quiet` 時は env filter で抑制される)。
+/// 呼び出し側は `FetchOutcome` を見て埋め込みメタデータを埋めるだけでよく、
+/// `Result` を畳む必要がない。
+pub async fn fetch_best_effort(
+    session: &Session,
+    paths: &Paths,
+    embed_url: &str,
+    no_cache: bool,
+) -> FetchOutcome {
+    let res = fetch_slide_pdf(session, paths, embed_url, no_cache).await;
+    match &res {
+        Ok(_) => {}
+        Err(ImoocsError::Auth { .. }) => {
+            warn!(
+                %embed_url,
+                "slide fetch skipped: Google session unavailable (run `imoocs auth login-google` to enable)"
+            );
+        }
+        Err(e) => {
+            warn!(%embed_url, error = %e, "slide fetch failed; continuing without PDF");
+        }
+    }
+    classify_fetch_outcome(res)
+}
+
+fn classify_fetch_outcome(res: Result<SlideFetchResult>) -> FetchOutcome {
+    match res {
+        Ok(r) => FetchOutcome {
+            status: FetchStatus::Ok,
+            local_pdf_path: Some(r.local_pdf_path),
+            size_bytes: Some(r.size_bytes),
+            page_count: if r.page_count > 0 { Some(r.page_count) } else { None },
+            fetched_at: Some(r.fetched_at),
+            from_cache: r.from_cache,
+        },
+        Err(ImoocsError::Auth { .. }) => FetchOutcome {
+            status: FetchStatus::Skipped,
+            local_pdf_path: None,
+            size_bytes: None,
+            page_count: None,
+            fetched_at: None,
+            from_cache: false,
+        },
+        Err(_) => FetchOutcome {
+            status: FetchStatus::Failed,
+            local_pdf_path: None,
+            size_bytes: None,
+            page_count: None,
+            fetched_at: None,
+            from_cache: false,
+        },
+    }
 }
 
 /// 挙動は `fetch_slide_pdf` と同じだが、`dump_dir` が渡された場合は中間成果物
@@ -407,4 +477,60 @@ fn merge_pdfs_lopdf(inputs: &[Vec<u8>]) -> Result<Vec<u8>> {
             .map_err(|e| ImoocsError::Internal(format!("lopdf save: {e}")))?;
     }
     Ok(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ok_result() -> SlideFetchResult {
+        SlideFetchResult {
+            local_pdf_path: PathBuf::from("/tmp/slide.pdf"),
+            size_bytes: 123,
+            page_count: 4,
+            fetched_at: "2026-04-24T00:00:00Z".into(),
+            from_cache: false,
+        }
+    }
+
+    #[test]
+    fn classify_ok_fills_all_metadata() {
+        let out = classify_fetch_outcome(Ok(ok_result()));
+        assert_eq!(out.status, FetchStatus::Ok);
+        assert_eq!(out.local_pdf_path.as_deref(), Some(std::path::Path::new("/tmp/slide.pdf")));
+        assert_eq!(out.size_bytes, Some(123));
+        assert_eq!(out.page_count, Some(4));
+        assert_eq!(out.fetched_at.as_deref(), Some("2026-04-24T00:00:00Z"));
+        assert!(!out.from_cache);
+    }
+
+    #[test]
+    fn classify_auth_error_maps_to_skipped() {
+        let err = ImoocsError::Auth {
+            reason: "Google session required".into(),
+            hint: None,
+        };
+        let out = classify_fetch_outcome(Err(err));
+        assert_eq!(out.status, FetchStatus::Skipped);
+        assert!(out.local_pdf_path.is_none());
+        assert!(out.size_bytes.is_none());
+        assert!(out.fetched_at.is_none());
+    }
+
+    #[test]
+    fn classify_network_error_maps_to_failed() {
+        let err = ImoocsError::Network("dns lookup failed".into());
+        let out = classify_fetch_outcome(Err(err));
+        assert_eq!(out.status, FetchStatus::Failed);
+        assert!(out.local_pdf_path.is_none());
+    }
+
+    #[test]
+    fn classify_ok_with_zero_page_count_keeps_page_count_none() {
+        let mut r = ok_result();
+        r.page_count = 0;
+        let out = classify_fetch_outcome(Ok(r));
+        assert_eq!(out.status, FetchStatus::Ok);
+        assert!(out.page_count.is_none(), "zero page count should not be emitted");
+    }
 }
