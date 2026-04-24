@@ -27,6 +27,10 @@ npm-package = "iniad-moocs-cli"
 publish-jobs = ["npm"]
 # CI (fmt/clippy/test) を plan 後に挟んで、失敗したら release を止める
 plan-jobs = ["./ci"]
+# release.yml を OIDC trusted publishing 用に手編集しているため、
+# `dist generate` の上書きを抑止する。cargo-dist が engines.node 設定や
+# OIDC をネイティブサポートしたら外す。
+allow-dirty = ["ci"]
 
 [dist.github-action-commits]
 "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
