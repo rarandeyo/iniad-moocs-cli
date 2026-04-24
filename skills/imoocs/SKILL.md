@@ -122,16 +122,18 @@ MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返
 
 ### C. レッスン閲覧 / スライド PDF
 
-1. URL があれば `imoocs open <url>`。レッスンページなら `type: "lesson"` が返り、`markdown` 本文 + `embeds[]` + `assignments[]` が同梱される。
-2. `imoocs lesson show --url <url>` はデフォルトで課題展開 + Slides PDF 取得まで全部済ませる (`imoocs open <url>` と同等の payload が返る)。URL を貼られた場合は `--url` 形が skill 原則 (URL を手パースしない) に整合する — CLI 側の `scrape::url::parse` が `/courses/<year>/<courseId>/<lessonId>[/<pageId>]` を自動分解する。URL が手元に無く courseId / lessonId しか分かっていないなら positional 形 `imoocs lesson show <courseId> <lessonId> [--page <pageId>]` を使う (`--page` 省略時は first page)。保存先は config / 単発取得の `imoocs slide fetch --out-dir` で `/tmp/imoocs/slides/` (default) / `cache` / 絶対パスから選べる。スライド PDF が不要なときは `--no-fetch-slides`、課題展開が不要なら `--no-assignments` で軽量化できる。
-3. PDF パスは `embeds[*].localPdfPath` に載る。必要なら Read tool で開いて読める (Linux なら `poppler-utils` が要る; 大きい場合は `pages` 指定で分割読み)。
-4. **授業の配布物 (zip / PDF / ノートテンプレ) は Drive フォルダから探す**。INIAD は本編コード・データ・配布資料をコース専用の Google Drive フォルダにまとめる運用で、スライド PDF 側は受講準備 (環境構築など) だけのことがある。取り方:
+1. `imoocs lesson show --url <url>` が既定で **markdown 本文 + embeds + 全課題 (AssignmentDetail) + Slides PDF (best-effort)** をまとめて返す。URL を貼られたらそのまま `--url` に渡す (skill 原則の「URL を手パースしない」に整合)。URL が手元に無く courseId / lessonId しか分かっていないなら positional 形 `imoocs lesson show <courseId> <lessonId> [--page <pageId>]` (`--page` 省略時は first page)。
+2. **軽量化したいとき**: スライド PDF が要らなければ `--no-fetch-slides`、課題展開が要らなければ `--no-assignments`。どちらも付けなければ CLI が best-effort で全部取ってくる (Slide が取れなくても exit 0 維持、`embeds[*].fetchStatus = "skipped" | "failed"` が入るだけ)。
+3. **スライドだけ単発で欲しいとき**: `imoocs slide fetch <embedUrl>`。保存先は config / `--out-dir` で `/tmp/imoocs/slides/` (default) / `cache` / 絶対パスから選べる。
+4. PDF パスは `embeds[*].localPdfPath` に載る。必要なら Read tool で開いて読める (Linux なら `poppler-utils` が要る; 大きい場合は `pages` 指定で分割読み)。
+5. 最上位原則 (§原則 2) で `imoocs open <url>` を先に叩いていた場合、URL が lesson / page なら `data.lesson` + `data.assignments` に同じ payload が既に入っているので、**lesson show を追加で叩き直さない**。
+6. **授業の配布物 (zip / PDF / ノートテンプレ) は Drive フォルダから探す**。INIAD は本編コード・データ・配布資料をコース専用の Google Drive フォルダにまとめる運用で、スライド PDF 側は受講準備 (環境構築など) だけのことがある。取り方:
    1. `~/.config/imoocs/course-drive-folders.toml` を Read で開き、対象 `courseId` に紐づく `folderId` を引く。TOML が無い / 対象コースが未登録なら、先に `imoocs-drive-setup` skill を走らせてマッピングを作るようユーザに案内する (このスキルから呼ぶのではなく、ユーザの明示で起動する)。
    2. `imoocs drive list <folderId>` で中身を列挙。年度フォルダや講義回別サブフォルダがあれば `drive list <subFolderId>` で下りる。
    3. ファイル名 / lessonId / 更新日時から、該当レッスンの配布物として妥当な候補を 1–3 件に絞る (例: `ai-s02.zip`, `ai-s02-handout.pdf`)。確定できないときは候補をユーザに提示して選ばせる。勝手に確定しない。
    4. `imoocs drive fetch <fileId>` で取得。保存先は `$XDG_CACHE_HOME/imoocs/drive/<fileId>.<ext>` (永続)。zip なら agent 側で展開して中身を要約する。
    5. 補助: レッスン側の `embeds[*]` に `type: "google-drive"` が直接載っていれば、そちらが公式の配布物。TOML 経由より優先する。
-5. Drive ネイティブ形式 (Docs/Sheets/Slides) は現状 API 経由で落とせないので、UI リンクをユーザに案内する。
+7. Drive ネイティブ形式 (Docs/Sheets/Slides) は現状 API 経由で落とせないので、UI リンクをユーザに案内する。
 
 ## 落とし穴 (必ず守ること)
 
