@@ -9,7 +9,7 @@ use anyhow::Result;
 use clap::Subcommand;
 use imoocs_core::{
     api::drive::{fetch_drive_file, list_drive_folder, search_drive_folders},
-    drive_folders::{CourseDriveFolders, MatchStrategy},
+    drive_folders::{CourseDriveFolders, MatchStrategy, UnresolvedReason},
     envelope::ErrorDetail,
     paths::Paths,
     schemas::DriveSearchResult,
@@ -164,18 +164,14 @@ fn render_folders(report: &Option<CourseDriveFolders>) -> String {
         return out;
     }
     let _ = writeln!(out);
-    let _ = writeln!(out, "year | courseId | name | strategy | url");
+    let _ = writeln!(out, "year | courseId | name | strategy | folders");
     for c in &cdf.courses {
         let strategy = strategy_label(c.match_strategy);
-        let url = if c.drive_folder_url.is_empty() {
-            "-"
-        } else {
-            c.drive_folder_url.as_str()
-        };
+        let folders = render_folder_cell(c);
         let _ = writeln!(
             out,
             "{} | {} | {} | {} | {}",
-            c.year, c.course_id, c.name, strategy, url
+            c.year, c.course_id, c.name, strategy, folders
         );
     }
     let s = cdf.summary();
@@ -212,6 +208,29 @@ fn strategy_label(s: MatchStrategy) -> &'static str {
         MatchStrategy::UserConfirmed => "user-confirmed",
         MatchStrategy::Unresolved => "unresolved",
     }
+}
+
+fn unresolved_reason_label(r: UnresolvedReason) -> &'static str {
+    match r {
+        UnresolvedReason::Deferred => "deferred",
+        UnresolvedReason::NotOffered => "not-offered",
+        UnresolvedReason::PendingFolder => "pending-folder",
+        UnresolvedReason::NeedsUserInput => "needs-user-input",
+    }
+}
+
+fn render_folder_cell(c: &imoocs_core::drive_folders::CourseDriveFolderEntry) -> String {
+    if c.drive_folders.is_empty() {
+        return match c.unresolved_reason {
+            Some(r) => format!("- ({})", unresolved_reason_label(r)),
+            None => "-".to_string(),
+        };
+    }
+    c.drive_folders
+        .iter()
+        .map(|f| f.url.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[derive(Debug, PartialEq, Eq)]

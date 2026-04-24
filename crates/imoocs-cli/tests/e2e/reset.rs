@@ -31,10 +31,16 @@ out_dir = "cache"
 confirm = "auto"
 "#;
 
-const COURSE_DRIVE_BODY: &str = r#"[[course]]
+const COURSE_DRIVE_BODY: &str = r#"driveRootFolderId = "FAKE_DRIVE_ROOT_ID_RESET_TEST_0001"
+
+[[courses]]
 year = 2026
-course_id = "INI301"
-folder_id = "abc"
+courseId = "INI301"
+name = "x"
+matchStrategy = "exact"
+[[courses.driveFolders]]
+id = "FAKE_DRIVE_FOLDER_ID_RESET_TEST_0001"
+url = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_RESET_TEST_0001"
 "#;
 
 fn setup_state(xdg: &TempXdg) {
