@@ -133,17 +133,19 @@ Exit code: 0 / 1 API / 2 Auth / 3 Validation / 4 NotFound / 5 Internal / 6 Netwo
 
 ## Development
 
-Rust toolchain は `mise.toml` で `1.93.1` に固定。
-
-```sh
-mise trust . && mise install       # 初回のみ
-```
+Rust toolchain は `rust-toolchain.toml` で `1.93.1` + `rustfmt` + `clippy` に固定。
+`rustup` が入っていれば repo に `cd` するだけで自動適用される。
 
 ```sh
 cargo build --workspace
 ```
 
-mise を使わない場合は `rustup` が `Cargo.toml` の `rust-version = 1.93` を見て揃える。
+`cargo-dist` など Rust 以外のツールは `mise` で管理。
+
+```sh
+mise trust . && mise install       # 初回のみ (cargo-dist を入れる)
+```
+
 Linux でビルド時に `dbus-1` が見つからないエラーが出たら `libdbus-1-dev` と `pkg-config` を OS のパッケージマネージャで入れる。
 
 ## Docs

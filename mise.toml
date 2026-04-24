@@ -1,5 +1,4 @@
 [tools]
-rust = { version = "1.93.1", profile = "default" }
 "github:axodotdev/cargo-dist" = { version = "0.31.0", exe = "dist" }
 
 [env]

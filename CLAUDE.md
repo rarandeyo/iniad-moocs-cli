@@ -3,7 +3,7 @@
 Claude Code がこのリポジトリで作業する際の前提。エージェント向け操作手順は
 [skills/imoocs/SKILL.md](./skills/imoocs/SKILL.md) を読む。
 
-- Rust toolchain は `mise.toml` で 1.93.1 に固定 (`mise install` で取得)。
+- Rust toolchain は `rust-toolchain.toml` で 1.93.1 に固定 (rustup が自動解決)。`cargo-dist` など Rust 以外のツールは `mise install` で取得。
 
 ## 学内ネットワーク制限について
 

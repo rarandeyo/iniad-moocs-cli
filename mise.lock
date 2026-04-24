@@ -45,7 +45,3 @@ checksum = "sha256:a14e17557b269b101405e0cc6b647581d56313c954a51c7fddd423bba21e1
 url = "https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/axodotdev/cargo-dist/releases/assets/360963394"
 provenance = "github-attestations"
-
-[[tools.rust]]
-version = "1.93.1"
-backend = "core:rust"
