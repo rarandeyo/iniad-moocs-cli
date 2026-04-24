@@ -238,22 +238,45 @@ CLI / env でこの値を直接 override する方法はない。設定ソース
 
 ### 4.4 `course-drive-folders.toml`
 
-CLI からは読み取り専用。概形は次の通り。
+CLI からは読み取り専用 (書き込みは `imoocs-drive-setup` skill が担当)。schema は N:M を許容: 1 コースに複数 Drive フォルダ (1:N) は `[[courses.driveFolders]]` を複数並べ、複数コースが同一フォルダを共有 (N:1) は同じ `id` を各 entry に書く。概形は次の通り。
 
 ```toml
 driveRootFolderId = "..."
 
+# 1:1 (典型)
 [[courses]]
 year = 2026
 courseId = "INI301"
 name = "..."
-driveFolderId = "..."
-driveFolderUrl = "https://drive.google.com/drive/folders/..."
-matchedAt = "2026-04-23"
+matchedAt = "2026-04-25"
 matchStrategy = "exact" # exact / partial / user-confirmed / unresolved
+[[courses.driveFolders]]
+id = "..."
+url = "https://drive.google.com/drive/folders/..."
+
+# 1:N (1 コースに複数フォルダ)
+[[courses]]
+year = 2026
+courseId = "COT101"
+name = "コンピュータ・サイエンス概論 I & 演習 I"
+matchStrategy = "user-confirmed"
+[[courses.driveFolders]]
+id = "..."
+url = "..."
+[[courses.driveFolders]]
+id = "..."
+url = "..."
+
+# Unresolved (理由分類付き)
+[[courses]]
+year = 2026
+courseId = "CV101"
+name = "..."
+matchStrategy = "unresolved"
+unresolvedReason = "not-offered" # deferred / not-offered / pending-folder / needs-user-input
 ```
 
-`drive folders` と `doctor` がこれを読む。
+`unresolvedReason` は `matchStrategy = "unresolved"` の理由分類。再走時の挙動 (`not-offered` はスキップ、`deferred` 等は再解決を試みる) を分けるために使う。`drive folders` と `doctor` がこれを読む。
 
 ## 5. 出力と終了コード
 

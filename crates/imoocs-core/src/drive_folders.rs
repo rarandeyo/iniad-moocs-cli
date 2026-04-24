@@ -26,13 +26,27 @@ pub struct CourseDriveFolderEntry {
     pub year: Year,
     pub course_id: String,
     pub name: String,
+    /// 1 コースに紐付く Drive フォルダ群。0 件なら未解決、複数なら 1:N
+    /// (例: COT101「概論Ⅰ + 基礎演習Ⅰ」)。複数コースが同一フォルダを共有する
+    /// N:1 ケース (例: HII201/UX104/UX108 の「デザイン理論」) は、各 entry の
+    /// `drive_folders` に同じ `id` を書くだけで表現する。
     #[serde(default)]
-    pub drive_folder_id: String,
-    #[serde(default)]
-    pub drive_folder_url: String,
+    pub drive_folders: Vec<DriveFolderRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub matched_at: Option<String>,
     pub match_strategy: MatchStrategy,
+    /// `match_strategy = "unresolved"` の理由分類。再走時の挙動を分けるために
+    /// 使う (例: `Deferred` は次回 Drive 検索で埋まる見込み、`NotOffered` は
+    /// 再走時もスキップ)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unresolved_reason: Option<UnresolvedReason>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DriveFolderRef {
+    pub id: String,
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -44,9 +58,22 @@ pub enum MatchStrategy {
     Unresolved,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum UnresolvedReason {
+    /// 当該年度に Drive フォルダが用意されたら埋まる見込み (典型: 学期途中で追加)。
+    Deferred,
+    /// 当該年度は未開講と判断 (履修登録には残るが資料が出ない / 出さない)。
+    NotOffered,
+    /// 教員側でフォルダが作られていない (要連絡)。
+    PendingFolder,
+    /// 候補が複数 / 不明で次回ユーザ判断待ち。
+    NeedsUserInput,
+}
+
 impl CourseDriveFolderEntry {
     pub fn is_resolved(&self) -> bool {
-        self.match_strategy != MatchStrategy::Unresolved && !self.drive_folder_id.is_empty()
+        self.match_strategy != MatchStrategy::Unresolved && !self.drive_folders.is_empty()
     }
 }
 
@@ -83,18 +110,18 @@ driveRootFolderId = "FAKE_DRIVE_ROOT_ID_SAMPLE_0001"
 year = 2026
 courseId = "INI301"
 name = "機械学習と人工知能"
-driveFolderId = "FAKE_DRIVE_FOLDER_ID_SAMPLE_0001"
-driveFolderUrl = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_SAMPLE_0001"
 matchedAt = "2026-04-23"
 matchStrategy = "exact"
+[[courses.driveFolders]]
+id = "FAKE_DRIVE_FOLDER_ID_SAMPLE_0001"
+url = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_SAMPLE_0001"
 
 [[courses]]
 year = 2026
 courseId = "INI302"
 name = "データサイエンス入門"
-driveFolderId = ""
-driveFolderUrl = ""
 matchStrategy = "unresolved"
+unresolvedReason = "not-offered"
 "#;
 
     #[test]
@@ -105,8 +132,12 @@ matchStrategy = "unresolved"
         assert_eq!(cdf.courses[0].course_id, "INI301");
         assert_eq!(cdf.courses[0].match_strategy, MatchStrategy::Exact);
         assert_eq!(cdf.courses[0].matched_at.as_deref(), Some("2026-04-23"));
+        assert_eq!(cdf.courses[0].drive_folders.len(), 1);
+        assert_eq!(cdf.courses[0].drive_folders[0].id, "FAKE_DRIVE_FOLDER_ID_SAMPLE_0001");
         assert!(cdf.courses[0].is_resolved());
         assert_eq!(cdf.courses[1].match_strategy, MatchStrategy::Unresolved);
+        assert_eq!(cdf.courses[1].unresolved_reason, Some(UnresolvedReason::NotOffered));
+        assert!(cdf.courses[1].drive_folders.is_empty());
         assert!(!cdf.courses[1].is_resolved());
     }
 
@@ -136,7 +167,90 @@ matchStrategy = "unresolved"
     }
 
     #[test]
-    fn user_confirmed_entry_with_id_is_resolved() {
+    fn unresolved_reason_roundtrip_kebab_case() {
+        let variants = [
+            ("\"deferred\"", UnresolvedReason::Deferred),
+            ("\"not-offered\"", UnresolvedReason::NotOffered),
+            ("\"pending-folder\"", UnresolvedReason::PendingFolder),
+            ("\"needs-user-input\"", UnresolvedReason::NeedsUserInput),
+        ];
+        for (repr, expected) in variants {
+            let got: UnresolvedReason = serde_json::from_str(repr).unwrap();
+            assert_eq!(got, expected);
+            let back = serde_json::to_string(&expected).unwrap();
+            assert_eq!(back, repr);
+        }
+    }
+
+    #[test]
+    fn one_to_many_entry_keeps_all_folders() {
+        let toml = r#"
+driveRootFolderId = "root"
+
+[[courses]]
+year = 2026
+courseId = "COT101"
+name = "コンピュータ・サイエンス概論 I & 演習 I"
+matchStrategy = "user-confirmed"
+[[courses.driveFolders]]
+id = "FAKE_FOLDER_GAIRON_I"
+url = "https://drive.google.com/drive/folders/FAKE_FOLDER_GAIRON_I"
+[[courses.driveFolders]]
+id = "FAKE_FOLDER_KISO_ENSHU_I"
+url = "https://drive.google.com/drive/folders/FAKE_FOLDER_KISO_ENSHU_I"
+"#;
+        let cdf: CourseDriveFolders = toml::from_str(toml).unwrap();
+        assert_eq!(cdf.courses[0].drive_folders.len(), 2);
+        assert_eq!(cdf.courses[0].drive_folders[1].id, "FAKE_FOLDER_KISO_ENSHU_I");
+        assert!(cdf.courses[0].is_resolved());
+    }
+
+    #[test]
+    fn many_to_one_shares_folder_id_across_entries() {
+        let toml = r#"
+driveRootFolderId = "root"
+
+[[courses]]
+year = 2026
+courseId = "HII201"
+name = "デザイン理論：UX基礎"
+matchStrategy = "user-confirmed"
+[[courses.driveFolders]]
+id = "FAKE_FOLDER_DESIGN_THEORY"
+url = "https://drive.google.com/drive/folders/FAKE_FOLDER_DESIGN_THEORY"
+
+[[courses]]
+year = 2026
+courseId = "UX104"
+name = "デザイン理論 III"
+matchStrategy = "user-confirmed"
+[[courses.driveFolders]]
+id = "FAKE_FOLDER_DESIGN_THEORY"
+url = "https://drive.google.com/drive/folders/FAKE_FOLDER_DESIGN_THEORY"
+"#;
+        let cdf: CourseDriveFolders = toml::from_str(toml).unwrap();
+        assert_eq!(cdf.courses.len(), 2);
+        assert_eq!(cdf.courses[0].drive_folders[0].id, cdf.courses[1].drive_folders[0].id);
+    }
+
+    #[test]
+    fn empty_drive_folders_means_unresolved_for_is_resolved() {
+        let toml = r#"
+driveRootFolderId = "root"
+
+[[courses]]
+year = 2026
+courseId = "CV101"
+name = "地理情報システム"
+matchStrategy = "unresolved"
+unresolvedReason = "not-offered"
+"#;
+        let cdf: CourseDriveFolders = toml::from_str(toml).unwrap();
+        assert!(!cdf.courses[0].is_resolved());
+    }
+
+    #[test]
+    fn user_confirmed_entry_with_folders_is_resolved() {
         let toml = r#"
 driveRootFolderId = "root"
 
@@ -144,9 +258,10 @@ driveRootFolderId = "root"
 year = 2026
 courseId = "INI401"
 name = "x"
-driveFolderId = "FAKE_DRIVE_FOLDER_ID_USER_CONFIRMED_0001"
-driveFolderUrl = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_USER_CONFIRMED_0001"
 matchStrategy = "user-confirmed"
+[[courses.driveFolders]]
+id = "FAKE_DRIVE_FOLDER_ID_USER_CONFIRMED_0001"
+url = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_USER_CONFIRMED_0001"
 "#;
         let cdf: CourseDriveFolders = toml::from_str(toml).unwrap();
         assert!(cdf.courses[0].is_resolved());
@@ -163,10 +278,11 @@ someFutureField = "ignored"
 year = 2026
 courseId = "INI301"
 name = "x"
-driveFolderId = "FAKE_DRIVE_FOLDER_ID_FORWARD_COMPAT_0001"
-driveFolderUrl = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_FORWARD_COMPAT_0001"
 matchStrategy = "exact"
 futureFlag = true
+[[courses.driveFolders]]
+id = "FAKE_DRIVE_FOLDER_ID_FORWARD_COMPAT_0001"
+url = "https://drive.google.com/drive/folders/FAKE_DRIVE_FOLDER_ID_FORWARD_COMPAT_0001"
 "#;
         let cdf: CourseDriveFolders = toml::from_str(toml).expect("unknown fields must not error");
         assert_eq!(cdf.courses.len(), 1);
