@@ -2,10 +2,12 @@
 //!
 //! JSON のキーは慣習として `camelCase`。詳細は plan §Output Schema を参照。
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::config::ConfirmMode;
 
@@ -336,6 +338,58 @@ pub struct AnswerResult {
     pub status: AssignmentStatus,
     pub submitted: bool,
     pub saved_at: String,
+}
+
+/// `confirm` モードで `assignment submit` / `upload` がローカル draft に stage
+/// されたときに返す envelope。サーバには一切送っていない (`submitted` は常に false)。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedResult {
+    /// 常に `true`。envelope の分岐判定に使う。
+    pub staged: bool,
+    /// 常に `false`。サーバには送っていないので。
+    pub submitted: bool,
+    pub draft_path: PathBuf,
+    pub year: Year,
+    pub course_id: String,
+    pub problem_id: String,
+    pub answers: HashMap<String, Value>,
+    pub files: HashMap<String, PathBuf>,
+    /// 「TTY で `imoocs assignment push` を叩いて確定してください」という案内文。
+    pub hint: String,
+}
+
+/// `assignment upload` の envelope。auto モードでは `submitted=true`、
+/// confirm モードでは `staged=true / submitted=false` + `draftPath`。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadResult {
+    pub ok: bool,
+    pub pid: String,
+    /// confirm モードで draft に追加されたなら true。
+    pub staged: bool,
+    /// auto モードでサーバ確定したなら true。
+    pub submitted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<PathBuf>,
+}
+
+/// `assignment push` が stage 済 draft をサーバに確定送信した後の envelope。
+/// 途中失敗時はこの型ではなく `API_ERROR` / `NETWORK_ERROR` で返る (draft は保持される)。
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PushResult {
+    pub pushed: bool,
+    pub submitted: bool,
+    pub year: Year,
+    pub course_id: String,
+    pub problem_id: String,
+    pub answers_submitted_pids: Vec<String>,
+    pub files_submitted_pids: Vec<String>,
+    /// `put_answers` を呼んだ場合のみ埋まる。upload だけの draft を push した
+    /// ときは `None` (サーバ側 `/status` を別途取得しない単純化)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<AssignmentStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

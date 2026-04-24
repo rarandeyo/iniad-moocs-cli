@@ -11,6 +11,7 @@
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod drafts;
 pub mod drive_folders;
 pub mod envelope;
 pub mod error;
