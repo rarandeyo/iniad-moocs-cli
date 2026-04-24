@@ -1719,7 +1719,7 @@ checksum = "edcd27d72f2f071c64249075f42e205ff93c9a4c5f6c6da53e79ed9f9832c285"
 
 [[package]]
 name = "imoocs-cli"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1746,7 +1746,7 @@ dependencies = [
 
 [[package]]
 name = "imoocs-core"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
