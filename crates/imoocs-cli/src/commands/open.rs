@@ -19,10 +19,11 @@ use crate::output;
 pub struct OpenArgs {
     /// MOOCs URL (例: lesson ページやコース概要)。
     pub url: String,
-    /// URL が lesson で Google Slides の embed が含まれているときに PDF も取得する。
+    /// lesson URL のときに埋め込み Google Slides の PDF 取得をスキップする。
+    /// 指定しない場合は best-effort で fetch し、失敗時は warn + skip (exit 0 維持)。
     #[arg(long)]
-    pub fetch_slides: bool,
-    /// スライド PDF を強制再取得する。
+    pub no_fetch_slides: bool,
+    /// スライド PDF を強制再取得する (`--no-fetch-slides` と同時指定時は無視)。
     #[arg(long)]
     pub no_cache: bool,
     /// 課題を展開するときの問題文の言語。
@@ -97,13 +98,8 @@ pub async fn run(global: &GlobalArgs, args: OpenArgs) -> Result<ExitCode> {
                 Ok(w) => w,
                 Err(e) => return Ok(emit_err(e)),
             };
-            let fetch = args.fetch_slides || args.no_cache;
-            if fetch {
-                if let Err(e) =
-                    super::populate_slide_pdfs(&session, &paths, &mut with.lesson.embeds, args.no_cache).await
-                {
-                    return Ok(emit_err(e));
-                }
+            if !args.no_fetch_slides {
+                super::populate_slide_pdfs(&session, &paths, &mut with.lesson.embeds, args.no_cache).await;
             }
             output::emit_success(OpenResult::Lesson(with), global.format);
             Ok(ExitCode::from(0))

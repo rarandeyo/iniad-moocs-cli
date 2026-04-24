@@ -13,10 +13,10 @@ pub mod version;
 
 use std::future::Future;
 
-use imoocs_core::api::slides::{fetch_slide_pdf, SlideFetchResult};
+use imoocs_core::api::slides::{fetch_best_effort, FetchOutcome};
 use imoocs_core::config::Config;
 use imoocs_core::paths::{resolve_slides_out_dir, Paths, DEFAULT_SLIDES_OUT_DIR};
-use imoocs_core::schemas::{Embed, FetchStatus};
+use imoocs_core::schemas::Embed;
 use imoocs_core::session::Session;
 use imoocs_core::Result;
 
@@ -33,22 +33,26 @@ pub fn apply_slides_config(paths: Paths, cli_override: Option<&str>) -> Result<P
     Ok(paths.with_slides_dir(dir))
 }
 
+/// `Embed::GoogleSlides` を best-effort で PDF 取得し、結果 (成功/skip/failed) を
+/// 各埋め込みに書き戻す。`fetch_best_effort` が内部で warn + skip するので
+/// 呼び出し側は `Result` を畳む必要がない。Google SSO 未ログインや一時的な
+/// ネットワーク障害でも呼び出し元は exit 0 で先に進める。
 pub(crate) async fn populate_slide_pdfs(
     session: &Session,
     paths: &Paths,
     embeds: &mut [Embed],
     no_cache: bool,
-) -> Result<()> {
+) {
     populate_slide_pdfs_with(embeds, |embed_url| async move {
-        fetch_slide_pdf(session, paths, &embed_url, no_cache).await
+        fetch_best_effort(session, paths, &embed_url, no_cache).await
     })
     .await
 }
 
-async fn populate_slide_pdfs_with<F, Fut>(embeds: &mut [Embed], mut fetch: F) -> Result<()>
+async fn populate_slide_pdfs_with<F, Fut>(embeds: &mut [Embed], mut fetch: F)
 where
     F: FnMut(String) -> Fut,
-    Fut: Future<Output = Result<SlideFetchResult>>,
+    Fut: Future<Output = FetchOutcome>,
 {
     for embed in embeds.iter_mut() {
         if let Embed::GoogleSlides {
@@ -61,24 +65,21 @@ where
             ..
         } = embed
         {
-            let res = fetch(embed_url.clone()).await?;
-            *local_pdf_path = Some(res.local_pdf_path);
-            *size_bytes = Some(res.size_bytes);
-            if res.page_count > 0 {
-                *page_count = Some(res.page_count);
-            }
-            *fetched_at = Some(res.fetched_at);
-            *fetch_status = Some(FetchStatus::Ok);
+            let out = fetch(embed_url.clone()).await;
+            *local_pdf_path = out.local_pdf_path;
+            *size_bytes = out.size_bytes;
+            *page_count = out.page_count;
+            *fetched_at = out.fetched_at;
+            *fetch_status = Some(out.status);
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use imoocs_core::ImoocsError;
+    use imoocs_core::schemas::FetchStatus;
 
     use super::*;
 
@@ -101,24 +102,48 @@ mod tests {
         }
     }
 
+    fn ok_outcome(path: &str, pages: u32) -> FetchOutcome {
+        FetchOutcome {
+            status: FetchStatus::Ok,
+            local_pdf_path: Some(PathBuf::from(path)),
+            size_bytes: Some(42),
+            page_count: if pages > 0 { Some(pages) } else { None },
+            fetched_at: Some("2026-04-24T00:00:00Z".into()),
+            from_cache: false,
+        }
+    }
+
+    fn skipped_outcome() -> FetchOutcome {
+        FetchOutcome {
+            status: FetchStatus::Skipped,
+            local_pdf_path: None,
+            size_bytes: None,
+            page_count: None,
+            fetched_at: None,
+            from_cache: false,
+        }
+    }
+
+    fn failed_outcome() -> FetchOutcome {
+        FetchOutcome {
+            status: FetchStatus::Failed,
+            local_pdf_path: None,
+            size_bytes: None,
+            page_count: None,
+            fetched_at: None,
+            from_cache: false,
+        }
+    }
+
     #[tokio::test]
-    async fn populate_slide_pdfs_applies_fetch_results() {
+    async fn populate_slide_pdfs_applies_ok_outcome() {
         let mut embeds = vec![iframe_embed(), slides_embed("slide-a")];
 
         populate_slide_pdfs_with(&mut embeds, |embed_url| {
             let name = embed_url;
-            async move {
-                Ok(SlideFetchResult {
-                    local_pdf_path: PathBuf::from(format!("/tmp/{name}.pdf")),
-                    size_bytes: 42,
-                    page_count: 3,
-                    fetched_at: "2026-04-24T00:00:00Z".into(),
-                    from_cache: false,
-                })
-            }
+            async move { ok_outcome(&format!("/tmp/{name}.pdf"), 3) }
         })
-        .await
-        .expect("fetch succeeds");
+        .await;
 
         assert!(matches!(embeds[0], Embed::Iframe { .. }));
         match &embeds[1] {
@@ -141,52 +166,55 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn populate_slide_pdfs_propagates_fetch_errors() {
-        let mut embeds = vec![slides_embed("slide-a"), slides_embed("slide-b")];
+    async fn populate_slide_pdfs_records_skipped_and_failed_without_propagating() {
+        let mut embeds = vec![slides_embed("slide-a"), slides_embed("slide-b"), slides_embed("slide-c")];
 
-        let err = populate_slide_pdfs_with(&mut embeds, |embed_url| {
+        populate_slide_pdfs_with(&mut embeds, |embed_url| {
             let name = embed_url;
             async move {
-                if name == "slide-b" {
-                    Err(ImoocsError::Network("network down".into()))
-                } else {
-                    Ok(SlideFetchResult {
-                        local_pdf_path: PathBuf::from("/tmp/slide-a.pdf"),
-                        size_bytes: 7,
-                        page_count: 1,
-                        fetched_at: "2026-04-24T00:00:00Z".into(),
-                        from_cache: false,
-                    })
+                match name.as_str() {
+                    "slide-a" => ok_outcome("/tmp/slide-a.pdf", 1),
+                    "slide-b" => skipped_outcome(),
+                    _ => failed_outcome(),
                 }
             }
         })
-        .await
-        .expect_err("second fetch should fail");
+        .await;
 
-        assert!(matches!(err, ImoocsError::Network(_)));
         match &embeds[0] {
             Embed::GoogleSlides {
-                local_pdf_path,
-                size_bytes,
                 fetch_status,
+                local_pdf_path,
                 ..
             } => {
-                assert_eq!(local_pdf_path.as_ref(), Some(&PathBuf::from("/tmp/slide-a.pdf")));
-                assert_eq!(*size_bytes, Some(7));
                 assert_eq!(*fetch_status, Some(FetchStatus::Ok));
+                assert!(local_pdf_path.is_some());
             }
             other => panic!("expected google slides, got {other:?}"),
         }
         match &embeds[1] {
             Embed::GoogleSlides {
+                fetch_status,
                 local_pdf_path,
                 size_bytes,
-                fetch_status,
+                fetched_at,
                 ..
             } => {
+                assert_eq!(*fetch_status, Some(FetchStatus::Skipped));
                 assert!(local_pdf_path.is_none());
                 assert!(size_bytes.is_none());
-                assert!(fetch_status.is_none());
+                assert!(fetched_at.is_none());
+            }
+            other => panic!("expected google slides, got {other:?}"),
+        }
+        match &embeds[2] {
+            Embed::GoogleSlides {
+                fetch_status,
+                local_pdf_path,
+                ..
+            } => {
+                assert_eq!(*fetch_status, Some(FetchStatus::Failed));
+                assert!(local_pdf_path.is_none());
             }
             other => panic!("expected google slides, got {other:?}"),
         }

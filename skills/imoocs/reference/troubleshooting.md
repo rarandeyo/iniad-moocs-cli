@@ -91,6 +91,22 @@ agent の対応:
   あるいは絶対パスを指定。`imoocs slide fetch --out-dir <path>` で単発上書きも可。
 - `--no-cache` を付けると再取得する。
 
+## `embeds[*].fetchStatus` が `"skipped"` / `"failed"` で返る
+
+`lesson show` / `open <lesson-url>` は既定で埋め込み Google Slides の PDF を
+best-effort で取得する。失敗しても全体 exit は 0 を維持し、該当 embed の
+`fetchStatus` に以下のいずれかが入る:
+
+- `"ok"` — 取得成功。`localPdfPath` / `sizeBytes` / `pageCount` / `fetchedAt` が埋まる
+- `"skipped"` — Google SSO が未ログインで取りに行かなかった。`imoocs auth login-google` を案内
+- `"failed"` — ネットワーク / pubembed レイアウト変更 / PDF 合成エラー等の実障害。stderr の warn ログを読み、再試行か `imoocs slide fetch <embedUrl> --no-cache` で単体デバッグ
+
+agent の反応:
+
+- `skipped` → `imoocs auth login-google` をユーザに案内。PDF が要らない用途なら `--no-fetch-slides` を付けて再実行してよい
+- `failed` → 同じ URL を `imoocs slide fetch` で単発叩いて error 詳細を拾う (こちらは exit 2/6 で落ちる)
+- どちらも `markdown` / `assignments` は正常に返っているので、テキスト情報を先に使って作業継続できる
+
 ## `imoocs auth *` が JSON を返さない
 
 仕様。`--format json` を付けても無視される。agent は exit code と stderr で判断する:

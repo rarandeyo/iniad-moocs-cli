@@ -123,7 +123,7 @@ MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返
 ### C. レッスン閲覧 / スライド PDF
 
 1. URL があれば `imoocs open <url>`。レッスンページなら `type: "lesson"` が返り、`markdown` 本文 + `embeds[]` + `assignments[]` が同梱される。
-2. スライドを PDF で欲しいと言われたら `imoocs lesson show --url <url> --fetch-slides` か、単発で `imoocs slide fetch <embedUrl>` を叩く。URL を貼られた場合は `--url` 形が skill 原則 (URL を手パースしない) に整合する — CLI 側の `scrape::url::parse` が `/courses/<year>/<courseId>/<lessonId>[/<pageId>]` を自動分解する。URL が手元に無く courseId / lessonId しか分かっていないなら positional 形 `imoocs lesson show <courseId> <lessonId> [--page <pageId>] --fetch-slides` を使う (`--page` 省略時は first page)。保存先は config / `--out-dir` で `/tmp/imoocs/slides/` (default) / `cache` / 絶対パスから選べる。
+2. `imoocs lesson show --url <url>` はデフォルトで課題展開 + Slides PDF 取得まで全部済ませる (`imoocs open <url>` と同等の payload が返る)。URL を貼られた場合は `--url` 形が skill 原則 (URL を手パースしない) に整合する — CLI 側の `scrape::url::parse` が `/courses/<year>/<courseId>/<lessonId>[/<pageId>]` を自動分解する。URL が手元に無く courseId / lessonId しか分かっていないなら positional 形 `imoocs lesson show <courseId> <lessonId> [--page <pageId>]` を使う (`--page` 省略時は first page)。保存先は config / 単発取得の `imoocs slide fetch --out-dir` で `/tmp/imoocs/slides/` (default) / `cache` / 絶対パスから選べる。スライド PDF が不要なときは `--no-fetch-slides`、課題展開が不要なら `--no-assignments` で軽量化できる。
 3. PDF パスは `embeds[*].localPdfPath` に載る。必要なら Read tool で開いて読める (Linux なら `poppler-utils` が要る; 大きい場合は `pages` 指定で分割読み)。
 4. **授業の配布物 (zip / PDF / ノートテンプレ) は Drive フォルダから探す**。INIAD は本編コード・データ・配布資料をコース専用の Google Drive フォルダにまとめる運用で、スライド PDF 側は受講準備 (環境構築など) だけのことがある。取り方:
    1. `~/.config/imoocs/course-drive-folders.toml` を Read で開き、対象 `courseId` に紐づく `folderId` を引く。TOML が無い / 対象コースが未登録なら、先に `imoocs-drive-setup` skill を走らせてマッピングを作るようユーザに案内する (このスキルから呼ぶのではなく、ユーザの明示で起動する)。

@@ -75,7 +75,7 @@
 
 | key | 値 | デフォルト | 用途 |
 |---|---|---|---|
-| `[slides] out_dir` | `"cache"` / `"tmp"` / 絶対パス | `"tmp"` | `imoocs slide fetch` / `imoocs lesson show --fetch-slides` の PDF 保存先。`"cache"` は `$XDG_CACHE_HOME/imoocs/slides/`、`"tmp"` は `/tmp/imoocs/slides/` (OS が自動クリーンアップ)。 |
+| `[slides] out_dir` | `"cache"` / `"tmp"` / 絶対パス | `"tmp"` | `imoocs slide fetch` / `imoocs lesson show` / `imoocs open` (lesson URL) が既定で取得する PDF の保存先。`"cache"` は `$XDG_CACHE_HOME/imoocs/slides/`、`"tmp"` は `/tmp/imoocs/slides/` (OS が自動クリーンアップ)。 |
 | `[assignment] confirm` | `"auto"` / `"confirm"` | 未設定 (エラー) | `submit` / `upload` の挙動 (即サーバ確定 or ローカル stage)。下表参照。 |
 
 ### `[assignment] confirm` の挙動
@@ -105,11 +105,14 @@ confirm = "auto"
 
 ## Commands
 
+完全なコマンド/オプション/config/XDG 状態の説明は
+[docs/cli-reference.md](./docs/cli-reference.md) を参照。
+
 ```
 imoocs setup [--username <u>] [--password-stdin] [--skip-google] [--install-completion]
 imoocs auth {login,login-google,logout,status,export}
 imoocs course {list,show}
-imoocs lesson show <courseId> <lessonId> [--page <p>] [--fetch-slides] [--with-assignments]
+imoocs lesson show <courseId> <lessonId> [--page <p>] [--no-assignments] [--no-fetch-slides] [--no-cache]
 imoocs slide fetch <embedUrl>
 imoocs assignment {list,show,submit,upload,push,drafts}  # confirm モードでは submit/upload は stage のみ、push で確定
 imoocs assignment drafts {list,show,clear}               # $XDG_STATE_HOME/imoocs/drafts/ の操作
@@ -145,6 +148,7 @@ Linux でビルド時に `dbus-1` が見つからないエラーが出たら `li
 
 ## Docs
 
+- [docs/cli-reference.md](./docs/cli-reference.md) — 全コマンド、全オプション、全設定面、組み合わせ、hidden surface の完全リファレンス。
 - [skills/imoocs/SKILL.md](./skills/imoocs/SKILL.md) — agent 向け判断フロー。閲覧・取得・整理を主軸にし、書き込みは明示指示が前提。
 - [skills/imoocs/reference/submit-workflow.md](./skills/imoocs/reference/submit-workflow.md) — 課題提出チェックリスト。提出物の内容と提出操作の責任は利用者にある。
 - [skills/imoocs/reference/troubleshooting.md](./skills/imoocs/reference/troubleshooting.md) — exit code / 認証切れ対処。

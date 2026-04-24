@@ -6,6 +6,7 @@ use imoocs_core::{
     api,
     envelope::ErrorDetail,
     paths::Paths,
+    schemas::LessonWithAssignments,
     scrape::url::{self, MoocsPath},
     session::Session,
     ImoocsError,
@@ -16,7 +17,11 @@ use crate::output;
 
 #[derive(Debug, Subcommand)]
 pub enum LessonCommand {
-    /// lesson ページの内容 (markdown 本文 + embed) を表示する。
+    /// lesson ページの内容 (markdown 本文 + embed + 各課題の AssignmentDetail) を
+    /// まとめて返す。デフォルトで課題展開とスライド PDF 取得を行い、必要なら
+    /// `--no-assignments` / `--no-fetch-slides` で抑制できる。スライド取得は
+    /// best-effort なので、Google SSO 切れやネットワーク障害でも exit は 0 の
+    /// ままで `embeds[*].fetchStatus` に `skipped` / `failed` が入る。
     Show {
         /// コース id (例: `INI301`)。`--url` を指定した場合は無視される。
         #[arg(required_unless_present = "url")]
@@ -30,17 +35,19 @@ pub enum LessonCommand {
         /// positional 引数の代わりに MOOCs URL から course/lesson/page を解決する。
         #[arg(long, conflicts_with_all = ["course_id", "lesson_id", "page"])]
         url: Option<String>,
-        /// 埋め込み Google Slides を PDF として取得し `localPdfPath` を結果に入れる。
+        /// 各課題の AssignmentDetail 展開をスキップし、`assignments` を空配列で返す。
+        /// ページ本文 (markdown + embeds + assignment ID リスト) だけが欲しいときに使う。
         #[arg(long)]
-        fetch_slides: bool,
-        /// スライド cache が有効でも強制的に再取得する (--fetch-slides が有効になる)。
+        no_assignments: bool,
+        /// 埋め込み Google Slides の PDF 取得をスキップする。`embeds[*].localPdfPath`
+        /// は `null`、`fetchStatus` は埋まらない (None)。
+        #[arg(long)]
+        no_fetch_slides: bool,
+        /// スライド cache が有効でも強制的に再取得する。
+        /// `--no-fetch-slides` が指定されたときは無視される。
         #[arg(long)]
         no_cache: bool,
-        /// ページ上の各課題を AssignmentDetail に展開し
-        /// `{lesson, assignments: [AssignmentDetail, ...]}` を返す。
-        #[arg(long)]
-        with_assignments: bool,
-        /// 展開された課題の言語 (--with-assignments 指定時のみ有効)。
+        /// 展開された課題の言語 (`--no-assignments` 指定時は無視される)。
         #[arg(long, value_enum, default_value = "ja")]
         lang: super::assignment::LangArg,
     },
@@ -67,64 +74,58 @@ pub async fn run(global: &GlobalArgs, cmd: LessonCommand) -> Result<ExitCode> {
             lesson_id,
             page,
             url,
-            fetch_slides,
+            no_assignments,
+            no_fetch_slides,
             no_cache,
-            with_assignments,
             lang,
         } => {
             let target = match resolve_target(&session, global.year, course_id, lesson_id, page, url.as_deref()).await {
                 Ok(t) => t,
                 Err(e) => return Ok(emit_err(e)),
             };
-            let fetch = fetch_slides || no_cache;
-            if with_assignments {
-                let result = api::get_lesson_with_assignments(
-                    &session,
-                    target.year,
-                    &target.course_id,
-                    &target.lesson_id,
-                    target.page_id.as_deref(),
-                    lang.into(),
-                )
-                .await;
-                let mut with = match result {
-                    Ok(w) => w,
-                    Err(e) => return Ok(emit_err(e)),
-                };
-                if fetch {
-                    if let Err(e) =
-                        super::populate_slide_pdfs(&session, &paths, &mut with.lesson.embeds, no_cache).await
-                    {
-                        return Ok(emit_err(e));
-                    }
-                }
-                output::emit_success(with, global.format);
-                Ok(ExitCode::from(0))
-            } else {
-                match api::get_lesson_page(
-                    &session,
-                    target.year,
-                    &target.course_id,
-                    &target.lesson_id,
-                    target.page_id.as_deref(),
-                )
-                .await
-                {
-                    Ok(mut content) => {
-                        if fetch {
-                            if let Err(e) =
-                                super::populate_slide_pdfs(&session, &paths, &mut content.embeds, no_cache).await
-                            {
-                                return Ok(emit_err(e));
-                            }
-                        }
-                        output::emit_success(content, global.format);
-                        Ok(ExitCode::from(0))
-                    }
-                    Err(e) => Ok(emit_err(e)),
-                }
+            let fetched = match fetch_payload(&session, &target, no_assignments, lang.into()).await {
+                Ok(w) => w,
+                Err(e) => return Ok(emit_err(e)),
+            };
+            let mut with = fetched;
+            if !no_fetch_slides {
+                super::populate_slide_pdfs(&session, &paths, &mut with.lesson.embeds, no_cache).await;
             }
+            output::emit_success(with, global.format);
+            Ok(ExitCode::from(0))
         }
+    }
+}
+
+async fn fetch_payload(
+    session: &Session,
+    target: &Target,
+    no_assignments: bool,
+    lang: imoocs_core::schemas::Lang,
+) -> std::result::Result<LessonWithAssignments, ImoocsError> {
+    if no_assignments {
+        let lesson = api::get_lesson_page(
+            session,
+            target.year,
+            &target.course_id,
+            &target.lesson_id,
+            target.page_id.as_deref(),
+        )
+        .await?;
+        Ok(LessonWithAssignments {
+            lesson,
+            assignments: Vec::new(),
+        })
+    } else {
+        api::get_lesson_with_assignments(
+            session,
+            target.year,
+            &target.course_id,
+            &target.lesson_id,
+            target.page_id.as_deref(),
+            lang,
+        )
+        .await
     }
 }
 

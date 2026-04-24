@@ -33,7 +33,7 @@
 }
 ```
 
-### LessonContent (`lesson show`)
+### LessonContent (`lesson.lesson` フィールドとして入れ子で現れる)
 ```json
 {
   "year": 2026, "courseId": "INI301",
@@ -44,7 +44,8 @@
     { "type": "google-slides",
       "embedUrl": "...", "exportPdfUrl": "...", "exportPptxUrl": "...",
       "localPdfPath": "/home/.../slides/<sha1>.pdf", "pageCount": 16,
-      "fetchedAt": "2026-04-20T00:00:00Z" },
+      "fetchedAt": "2026-04-20T00:00:00Z",
+      "fetchStatus": "ok" },
     { "type": "google-drive", "kind": "file",
       "id": "FAKE_DRIVE_FILE_ID_FOR_TESTS_0001",
       "embedUrl": "https://drive.google.com/file/d/FAKE_DRIVE_FILE_ID_FOR_TESTS_0001/preview" },
@@ -54,13 +55,25 @@
 }
 ```
 
-### LessonWithAssignments (`lesson show --with-assignments` / `open` lesson)
+`embeds[*].fetchStatus` (Google Slides のみ) は `lesson show` / `open` の既定
+fetch を通ったあとに入る。値は `"ok"` / `"skipped"` (Google SSO 未ログイン等
+で取りに行かなかった) / `"failed"` (ネットワーク等で取れなかった) の 3 値。
+`--no-fetch-slides` 指定時や `imoocs slide fetch` で直接取得したレスポンスでは
+このフィールドは省略される。
+
+### LessonWithAssignments (`lesson show` / `open` lesson — 既定レスポンス)
 ```json
 {
   "lesson": { ...LessonContent... },
   "assignments": [ { ...AssignmentDetail... } | null, ... ]
 }
 ```
+
+`lesson show` と `open <lesson-url>` は既定でこの形を返す (課題展開 + Slides PDF
+取得を済ませた状態)。課題のないページでは `assignments: []`、課題展開を
+`--no-assignments` で抑制したときも `assignments: []`。`assignments[i] == null`
+は特定 `problemId` の取得に失敗した partial failure を示し、それ以外の要素と
+`lesson` は正常 (全体で exit 0)。
 
 ### AssignmentSummary (`assignment list`)
 ```json
