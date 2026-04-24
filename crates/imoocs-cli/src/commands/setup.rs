@@ -389,8 +389,8 @@ fn ensure_confirm_mode(text_mode: bool) -> std::result::Result<ConfirmModeOutcom
     }
 
     let items = [
-        "confirm — 慎重: AI agent 経由では確定せず Validation エラーで停止 (人間が TTY で再実行)",
-        "auto    — 信頼: 指示どおり即 force=true で確定 (摩擦なし)",
+        "confirm — 慎重: submit/upload はローカル draft に stage だけ。確定は TTY で `imoocs assignment push`",
+        "auto    — 信頼: submit/upload で即 force=true 確定 (摩擦なし)",
     ];
     if text_mode {
         eprintln!("  提出時の挙動を選んでください (後から config.toml で変更可)\n  ↑↓ で選択 / Enter で決定");

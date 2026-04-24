@@ -37,10 +37,12 @@ pub struct AssignmentConfig {
 }
 
 /// `assignment submit` / `assignment upload` の確定挙動を制御する。
-/// `Auto` は無条件に `force=true` を送る。`Confirm` は対話プロンプトで人間が
-/// `y` と答えた場合のみ `force=true` を送る。ユーザが拒否する、または
-/// 非対話で実行された場合、CLI は API を呼ばずに Validation エラーで中断する
-/// (サーバ側下書きも残らない)。
+///
+/// - `Auto`: `submit` / `upload` は無条件に `force=true` で即サーバ確定する。
+/// - `Confirm`: `submit` / `upload` はサーバに送らず、ローカル draft に stage
+///   するだけ (`$XDG_STATE_HOME/imoocs/drafts/` 配下、TTY/非 TTY 問わず同じ挙動)。
+///   確定は TTY 必須の `imoocs assignment push` が対話プロンプト経由で行う。
+///   AI agent がうっかり叩いてもサーバに副作用が出ない安全装置として機能する。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ConfirmMode {

@@ -1,4 +1,13 @@
-use std::io::IsTerminal;
+//! `assignment submit` / `upload` / `push` のゲート判定。
+//!
+//! - `submit` / `upload` は [`resolve_submit_gate`] を通って
+//!   `SubmitGate::Direct`（auto モード、即サーバ確定）か
+//!   `SubmitGate::Stage`（confirm モード、ローカル draft に stage）に分岐する。
+//!   どちらも TTY 有無には依存しない。
+//! - `push` は [`resolve_push_gate`] が先に config / TTY / 対話プロンプトを
+//!   検査し、合意が取れた場合のみ `true` を返す。
+
+use std::io::{ErrorKind, IsTerminal};
 
 use dialoguer::{theme::ColorfulTheme, Confirm};
 use imoocs_core::config::{Config, ConfirmMode};
@@ -6,85 +15,121 @@ use imoocs_core::ImoocsError;
 
 use super::auth::map_dialoguer_err;
 
-pub enum DestructiveAction<'a> {
-    Submit { course: &'a str, problem: &'a str },
-    UploadForce { pid: &'a str, filename: &'a str },
-}
-
-impl DestructiveAction<'_> {
-    fn prompt_text(&self) -> String {
-        match self {
-            DestructiveAction::Submit { course, problem } => {
-                format!("Finalise submission for {course}/{problem}? This cannot be undone.")
-            }
-            DestructiveAction::UploadForce { pid, filename } => {
-                format!("Finalise upload of {filename} as {pid}? This overwrites the previous submission.")
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ForceDecision {
-    Force,
-    Cancelled,
-    ConfigMissing,
+pub enum SubmitGate {
+    /// auto モード: `submit` / `upload` は即サーバ確定。
+    Direct,
+    /// confirm モード: `submit` / `upload` はローカル draft に stage される。
+    Stage,
 }
 
-/// Pure decision table. `prompt_answer` is what the TTY prompt returned
-/// (caller handles the actual `dialoguer` call); `None` for non-TTY.
-pub fn decide_force(mode: Option<ConfirmMode>, is_tty: bool, prompt_answer: Option<bool>) -> ForceDecision {
-    match mode {
-        None => ForceDecision::ConfigMissing,
-        Some(ConfirmMode::Auto) => ForceDecision::Force,
-        Some(ConfirmMode::Confirm) => {
-            if is_tty {
-                match prompt_answer {
-                    Some(true) => ForceDecision::Force,
-                    _ => ForceDecision::Cancelled,
-                }
-            } else {
-                ForceDecision::Cancelled
-            }
-        }
+/// `push` 時にユーザに見せる stage サマリ。
+pub struct PushAction<'a> {
+    pub course: &'a str,
+    pub problem: &'a str,
+    pub answer_pids: &'a [String],
+    pub file_pids: &'a [(String, String)],
+}
+
+impl PushAction<'_> {
+    fn prompt_text(&self) -> String {
+        let answers_part = if self.answer_pids.is_empty() {
+            "no answers".to_string()
+        } else {
+            format!("answers=[{}]", self.answer_pids.join(", "))
+        };
+        let files_part = if self.file_pids.is_empty() {
+            "no files".to_string()
+        } else {
+            let pids: Vec<String> = self
+                .file_pids
+                .iter()
+                .map(|(pid, name)| format!("{pid}:{name}"))
+                .collect();
+            format!("files=[{}]", pids.join(", "))
+        };
+        format!(
+            "Push staged draft to {course}/{problem}? ({answers_part}, {files_part}) This confirms the submission.",
+            course = self.course,
+            problem = self.problem,
+        )
     }
 }
 
-/// Runs the prompt where needed and returns the effective `force` flag.
-/// Returns a Validation error without calling the API when the user declines
-/// the confirmation prompt or when running non-interactively under
-/// `confirm` mode — the server is left untouched.
-pub fn resolve_force(cfg: &Config, action: &DestructiveAction) -> Result<bool, ImoocsError> {
-    let mode = cfg.assignment.as_ref().and_then(|a| a.confirm);
-    let is_tty = std::io::stdin().is_terminal();
-
-    let prompt_answer = if matches!(mode, Some(ConfirmMode::Confirm)) && is_tty {
-        let ans = Confirm::with_theme(&ColorfulTheme::default())
-            .with_prompt(action.prompt_text())
-            .default(false)
-            .interact()
-            .map_err(map_dialoguer_err)?;
-        Some(ans)
-    } else {
-        None
-    };
-
-    match decide_force(mode, is_tty, prompt_answer) {
-        ForceDecision::Force => Ok(true),
-        ForceDecision::Cancelled => {
-            let msg = if is_tty {
-                "Confirmation declined. Nothing was sent to the server."
-            } else {
-                "Confirmation required but running non-interactively. Run from a TTY, \
-                 or set `assignment.confirm = \"auto\"` in config.toml to let agents finalise."
-            };
-            Err(ImoocsError::Validation(msg.into()))
-        }
-        ForceDecision::ConfigMissing => Err(ImoocsError::Validation(
+/// submit/upload モード分岐の pure fn。
+pub fn decide_submit_gate(mode: Option<ConfirmMode>) -> Result<SubmitGate, ImoocsError> {
+    match mode {
+        None => Err(ImoocsError::Validation(
             "config `assignment.confirm` is not set. Run `imoocs setup`, or add \
              `[assignment]\\nconfirm = \"auto\"` (or `\"confirm\"`) to your config.toml."
                 .into(),
         )),
+        Some(ConfirmMode::Auto) => Ok(SubmitGate::Direct),
+        Some(ConfirmMode::Confirm) => Ok(SubmitGate::Stage),
+    }
+}
+
+/// `push` の TTY / config 先頭チェックだけ抽出した pure fn (テスト用)。
+/// `Ok(true)` は「TTY でプロンプトを出す段階まで進んで良い」を意味する。
+pub fn decide_push_precheck(mode: Option<ConfirmMode>, is_tty: bool) -> Result<(), ImoocsError> {
+    if mode.is_none() {
+        return Err(ImoocsError::Validation(
+            "config `assignment.confirm` is not set. Run `imoocs setup`, or add \
+             `[assignment]\\nconfirm = \"auto\"` (or `\"confirm\"`) to your config.toml."
+                .into(),
+        ));
+    }
+    if !is_tty {
+        return Err(ImoocsError::Validation(
+            "`assignment push` must be run from a TTY (interactive shell). \
+             Draft is retained; re-run from your terminal to finalise."
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Config から submit/upload のゲート判定を取り出す。
+pub fn resolve_submit_gate(cfg: &Config) -> Result<SubmitGate, ImoocsError> {
+    let mode = cfg.assignment.as_ref().and_then(|a| a.confirm);
+    decide_submit_gate(mode)
+}
+
+/// `push` のゲート判定。config missing / 非 TTY で早期に Validation エラーを返し、
+/// TTY では dialoguer プロンプトで `y` を押した場合のみ `Ok(true)` を返す。
+/// `n` / EOF / Ctrl-C 等は Validation エラーにする (draft は呼び出し側で保持)。
+pub fn resolve_push_gate(cfg: &Config, action: &PushAction) -> Result<bool, ImoocsError> {
+    let mode = cfg.assignment.as_ref().and_then(|a| a.confirm);
+    let is_tty = std::io::stdin().is_terminal();
+    decide_push_precheck(mode, is_tty)?;
+
+    let ans = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt(action.prompt_text())
+        .default(false)
+        .interact()
+        .map_err(|e| match &e {
+            // EOF (Ctrl-D) / 割り込み / TTY 消失はユーザ由来のキャンセルとして扱う。
+            // Internal (exit 5) にするとバグ扱いになるので Validation に倒す。
+            dialoguer::Error::IO(io_err)
+                if matches!(
+                    io_err.kind(),
+                    ErrorKind::UnexpectedEof | ErrorKind::Interrupted | ErrorKind::BrokenPipe
+                ) =>
+            {
+                ImoocsError::Validation(
+                    "Push cancelled (prompt interrupted). Draft is retained; \
+                     re-run `imoocs assignment push` when ready."
+                        .into(),
+                )
+            }
+            _ => map_dialoguer_err(e),
+        })?;
+    if ans {
+        Ok(true)
+    } else {
+        Err(ImoocsError::Validation(
+            "Push cancelled. Draft is retained; re-run `imoocs assignment push` when ready.".into(),
+        ))
     }
 }
 
@@ -93,53 +138,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_config_is_error() {
-        assert_eq!(decide_force(None, true, None), ForceDecision::ConfigMissing);
-        assert_eq!(decide_force(None, false, Some(true)), ForceDecision::ConfigMissing);
+    fn decide_submit_gate_missing_is_error() {
+        assert!(decide_submit_gate(None).is_err());
     }
 
     #[test]
-    fn auto_always_forces() {
-        assert_eq!(decide_force(Some(ConfirmMode::Auto), true, None), ForceDecision::Force);
-        assert_eq!(decide_force(Some(ConfirmMode::Auto), false, None), ForceDecision::Force);
-        assert_eq!(
-            decide_force(Some(ConfirmMode::Auto), false, Some(false)),
-            ForceDecision::Force,
-            "auto ignores any interactive answer"
-        );
+    fn decide_submit_gate_auto_is_direct() {
+        assert_eq!(decide_submit_gate(Some(ConfirmMode::Auto)).unwrap(), SubmitGate::Direct);
     }
 
     #[test]
-    fn confirm_tty_yes_forces() {
+    fn decide_submit_gate_confirm_is_stage() {
+        // confirm モードは TTY/agent 問わず常に Stage (agent safety の key)
         assert_eq!(
-            decide_force(Some(ConfirmMode::Confirm), true, Some(true)),
-            ForceDecision::Force
+            decide_submit_gate(Some(ConfirmMode::Confirm)).unwrap(),
+            SubmitGate::Stage
         );
     }
 
     #[test]
-    fn confirm_tty_no_cancels() {
-        assert_eq!(
-            decide_force(Some(ConfirmMode::Confirm), true, Some(false)),
-            ForceDecision::Cancelled
-        );
-        assert_eq!(
-            decide_force(Some(ConfirmMode::Confirm), true, None),
-            ForceDecision::Cancelled,
-            "missing prompt answer on TTY also cancels"
-        );
+    fn decide_push_precheck_missing_is_error() {
+        assert!(decide_push_precheck(None, true).is_err());
+        assert!(decide_push_precheck(None, false).is_err());
     }
 
     #[test]
-    fn confirm_non_tty_cancels() {
-        assert_eq!(
-            decide_force(Some(ConfirmMode::Confirm), false, None),
-            ForceDecision::Cancelled
-        );
-        assert_eq!(
-            decide_force(Some(ConfirmMode::Confirm), false, Some(true)),
-            ForceDecision::Cancelled,
-            "non-TTY never promotes, regardless of answer (agent protection)"
-        );
+    fn decide_push_precheck_non_tty_is_error() {
+        // auto でも confirm でも、push は TTY 必須
+        assert!(decide_push_precheck(Some(ConfirmMode::Auto), false).is_err());
+        assert!(decide_push_precheck(Some(ConfirmMode::Confirm), false).is_err());
+    }
+
+    #[test]
+    fn decide_push_precheck_tty_with_config_passes() {
+        assert!(decide_push_precheck(Some(ConfirmMode::Auto), true).is_ok());
+        assert!(decide_push_precheck(Some(ConfirmMode::Confirm), true).is_ok());
+    }
+
+    #[test]
+    fn push_action_prompt_contains_summary() {
+        let answer_pids = vec!["p1".to_string(), "p2".to_string()];
+        let file_pids = vec![("html".to_string(), "report.html".to_string())];
+        let action = PushAction {
+            course: "CS101",
+            problem: "prob-a",
+            answer_pids: &answer_pids,
+            file_pids: &file_pids,
+        };
+        let text = action.prompt_text();
+        assert!(text.contains("CS101/prob-a"));
+        assert!(text.contains("p1"));
+        assert!(text.contains("p2"));
+        assert!(text.contains("html:report.html"));
     }
 }

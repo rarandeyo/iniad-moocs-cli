@@ -72,9 +72,10 @@ pub enum Command {
         #[command(subcommand)]
         cmd: commands::lesson::LessonCommand,
     },
-    /// 課題関連のサブコマンド (list / show / submit / upload)。
-    /// `submit` / `upload` は常に確定を意図する (ゲートの強さは
-    /// `assignment.confirm` config で切替)。
+    /// 課題関連のサブコマンド (list / show / submit / upload / push / drafts)。
+    /// `assignment.confirm = "auto"` なら submit/upload が即サーバ確定、
+    /// `"confirm"` ならローカル draft に stage だけして `push` で確定する
+    /// 2-step 運用に切り替わる。詳細は `imoocs assignment <subcommand> --help`。
     #[command(visible_alias = "a")]
     Assignment {
         #[command(subcommand)]
