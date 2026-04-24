@@ -288,6 +288,9 @@ jobs:
       - plan
       - host
     runs-on: "ubuntu-22.04"
+    permissions:
+      id-token: write
+      contents: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PLAN: ${{ needs.plan.outputs.val }}
@@ -301,15 +304,24 @@ jobs:
           merge-multiple: true
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version: '20.x'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-      - run: |
+      - name: Publish via OIDC trusted publishing
+        run: |
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
             pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
-            npm publish --access public "./npm/${pkg}"
+            workdir="$(mktemp -d)"
+            tar -xzf "./npm/${pkg}" -C "$workdir"
+            (
+              cd "$workdir/package"
+              npm pkg set engines.node='>=22'
+              npm pkg delete repository
+              npm pkg set repository.type=git
+              npm pkg set repository.url='git+https://github.com/rarandeyo/iniad-moocs-cli.git'
+            )
+            ( cd "$workdir" && tar -czf out.tgz package/ )
+            npm publish --access public --provenance "$workdir/out.tgz"
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   announce:
     needs:
