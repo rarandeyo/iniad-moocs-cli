@@ -25,7 +25,7 @@ plan: `/home/rarandeyo/.claude/plans/cli-config-e2e-t-wada-tdd-enchanted-harbor.
 ## 1. 配管・契約 (5 件、副作用なし、env 不要)
 
 - [x] **1.1** `imoocs --version` → exit 0, stdout が `imoocs ` で始まる (Walking Skeleton)
-- [x] **1.2** `imoocs --help` → exit 0, stdout に 11 サブコマンド名すべて含む (`version`, `doctor`, `auth`, `course`, `lesson`, `assignment`, `slide`, `drive`, `open`, `setup`, `completion`)
+- [x] **1.2** `imoocs --help` → exit 0, stdout に 12 サブコマンド名すべて含む (`version`, `doctor`, `auth`, `course`, `lesson`, `assignment`, `slide`, `drive`, `open`, `reset`, `setup`, `completion`)
 - [x] **1.3** `imoocs unknown-cmd` → exit ≠ 0 (clap), stderr に "unrecognized" 系のエラー
 - [x] **1.4** `imoocs version` → exit 0, JSON envelope `{success:true, data:{name, version}}` (常に JSON、`--format` を無視)
 - [x] **1.5** `imoocs --format invalid version` → exit ≠ 0 (clap value_enum), stderr にエラー

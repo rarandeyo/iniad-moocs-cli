@@ -24,7 +24,7 @@ URL や明示的な MOOCs の単語がなくても、履修 / 課題 / 出席 / 
 
 1. **ブラウザや Playwright を開かない**。前身 MCP (playwright-mcp ベース) とは違い、この CLI は URL 1 本受け取れば内部でスクレイプ / ログイン / PDF 合成まで完結する。agent が DOM を触る必要はない。
 2. **`imoocs open <url>` を起点に据える**。URL を渡されたら、パスを手で parse せず `imoocs open <url>` に投げる。返ってきた envelope の `data.type` (`courses` / `course` / `lesson` / `assignment`) で次の一手を決める。
-3. **text 出力は人間向け、JSON envelope は agent 向け**。`course` / `lesson` / `assignment` / `slide` / `drive` / `open` は常に JSON。`auth *` は text 専用で exit code で分岐。`doctor` / `setup` は text がデフォルトなので、機械的に処理したいなら `--format json` を付ける。実際の config/network 障害では `doctor --format json` も failure envelope で落ちるので、`success: true` を前提にしない。
+3. **text 出力は人間向け、JSON envelope は agent 向け**。`course` / `lesson` / `assignment` / `slide` / `drive` / `open` は常に JSON。`auth *` と `reset` は text 専用で exit code で分岐。`doctor` / `setup` は text がデフォルトなので、機械的に処理したいなら `--format json` を付ける。実際の config/network 障害では `doctor --format json` も failure envelope で落ちるので、`success: true` を前提にしない。
 4. **confirm モードは 2-step (stage → push)**。`assignment.confirm = "confirm"` のとき、`imoocs assignment submit` / `upload` は **サーバに送らずローカル draft に stage するだけ** (HTTP を一切叩かない、非 TTY/TTY 共通)。envelope は `StagedResult { staged: true, submitted: false, draftPath, hint }` で exit 0。確定は TTY 必須の `imoocs assignment push` が担当し、対話プロンプトで `y` を押したときだけ `put_answers(force=true)` と各 `post_file(force=true)` を順次送信する。全部成功で draft 削除、途中失敗で draft 保持 (`API_ERROR`/`NETWORK_ERROR`)。`assignment.confirm = "auto"` の場合は従来通り submit/upload が即サーバ確定し、envelope `AnswerResult { submitted: true }` を返す。`push` を叩く必要はない。`submitted` の値でどの段階まで進んだか判別する: stage 済は `false`、push 済は `true`。
 5. **exit code で分岐**。envelope の `success` も見るが、以下の exit code だけでも大半の分岐が付く:
 
@@ -140,18 +140,19 @@ MOOCs の API はレッスンごとの開講日 / 講義スケジュールを返
 - **`NETWORK_RESTRICTED` (exit 7) は出席確認など一部のみ**。学外でこのエラーが出たら「学内 IP から再実行してください」とユーザに伝え、該当課題以外は普通に進める。全コースが学内限定ではない。
 - **`submit` / `upload` / `push` の成否は exit code + envelope の `staged` / `submitted` / `pushed` で判定**。`confirm` モードの submit/upload は exit 0 + `staged:true, submitted:false` (サーバ未送信)。`auto` モードの submit/upload は exit 0 + `submitted:true` (サーバ確定済)。`push` 成功は exit 0 + `pushed:true, submitted:true`。`push` の exit 3 は非 TTY / プロンプトで `n` / EOF / config 未設定のいずれか (draft は保持)。勝手にリトライしたり「提出しました」と要約したりしない。
 - **stage 中は local file を動かさない**。`upload` で stage したファイル絶対パスは `push` 時に `post_file` で読むので、stage 後に move / delete されると `push` が途中失敗する (draft は残るが file を戻すか別 upload で置き直す必要がある)。
-- **`imoocs auth *` は `--format json` が効かない**。text 出力と exit code で分岐する設計なので、パースを試みない。
+- **`imoocs auth *` と `imoocs reset` は `--format json` が効かない**。text 出力と exit code で分岐する設計なので、パースを試みない。
 - **スライド PDF は `/tmp` が既定**。永続キャッシュではない。「さっきの PDF をもう一度」のときは `--no-cache` 付きで再取得するか、config を `cache` に変えてもらう。
+- **`auth logout` は credential + session のみ**。`config.toml` (username / preference) は残る。設定ごと完全リセットしたいとユーザに言われたら `imoocs reset --scope all --yes`。途中のスコープ (`auth` / `config` / `cache` / `drafts`) で絞れる。
 
 ## 実行前に出力モードを意識する
 
 - `course` / `lesson` / `assignment` / `slide` / `drive` / `open` は **JSON envelope 固定**。そのまま parse する。
 - `doctor` / `setup` は人間向け。自分で解析するなら `--format json`。
-- `auth *` は text + exit code。envelope を期待して読まない。
-- グローバル `IMOOCS_FORMAT=json` / `IMOOCS_QUIET=1` / `IMOOCS_NO_PROGRESS=1` は CI や agent から便利。ただし `auth *` には効かない。
+- `auth *` と `reset` は text + exit code。envelope を期待して読まない。
+- グローバル `IMOOCS_FORMAT=json` / `IMOOCS_QUIET=1` / `IMOOCS_NO_PROGRESS=1` は CI や agent から便利。ただし `auth *` と `reset` には効かない。
 
 ## reference
 
 - [`reference/schema.md`](./reference/schema.md) — envelope と主要データ型 (`Course` / `CourseDetail` / `LessonContent` / `AssignmentSummary` / `AssignmentDetail` / `OpenResult` / `Drive*`)。フィールド名と `AssignmentStatus` vs `DerivedStatus` の対応表はここ。
 - [`reference/submit-workflow.md`](./reference/submit-workflow.md) — 課題提出のチェックリスト (ipynb 再実行 / html 生成 / 整合性確認 / 事後確認 / 未提出棚卸し) をステップ単位で。
-- [`reference/troubleshooting.md`](./reference/troubleshooting.md) — exit code ごとの対処、`NETWORK_RESTRICTED` の案内文例、ログイン切れ / Google SSO 切れの復帰手順。
+- [`reference/troubleshooting.md`](./reference/troubleshooting.md) — exit code ごとの対処、`NETWORK_RESTRICTED` の案内文例、ログイン切れ / Google SSO 切れの復帰手順、`imoocs reset` による完全初期化。

@@ -26,8 +26,8 @@ pub struct GlobalArgs {
     /// 出力フォーマット。デフォルトは `text`。人間向けの verb (`doctor`,
     /// `setup`) は読みやすいサマリを出力し、`--format json` で pretty JSON
     /// envelope に切り替わる。agent 向けの verb はこの flag に関わらず常に
-    /// pretty JSON envelope を吐く。`auth *` は text 専用で、この flag を
-    /// 無視する — 状態は exit code (構造化が必要なら
+    /// pretty JSON envelope を吐く。`auth *` と `reset` は text 専用で、この
+    /// flag を無視する — 状態は exit code (構造化が必要なら
     /// `imoocs doctor --format json`) で判断する。
     #[arg(long, value_enum, default_value_t = OutputMode::Text, env = "IMOOCS_FORMAT", global = true)]
     pub format: OutputMode,
@@ -96,6 +96,10 @@ pub enum Command {
     /// MOOCs の URL を開き、種類に応じた envelope
     /// (course / lesson-with-assignments / …) を返す。
     Open(commands::open::OpenArgs),
+    /// 認証情報 / 設定 / cookie / キャッシュ / draft をスコープ指定で一括削除する。
+    /// デフォルト (scope 省略) は `all`。対話的 TTY では確認プロンプト (default No) が出る。
+    /// 非 TTY では `--yes` が必須。`--dry-run` で消さずに対象だけ列挙する。
+    Reset(commands::reset::ResetArgs),
     /// 初期セットアップウィザード: MOOCs ログイン、Google SSO、提出モード、shell 補完。
     Setup(commands::setup::SetupArgs),
     /// shell completion を stdout に出力 (`generate`) または XDG 標準パスに配置 (`install`) する。
@@ -116,6 +120,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Slide { cmd } => commands::slide::run(&cli.global, cmd).await,
         Command::Drive { cmd } => commands::drive::run(&cli.global, cmd).await,
         Command::Open(args) => commands::open::run(&cli.global, args).await,
+        Command::Reset(args) => commands::reset::run(&cli.global, args).await,
         Command::Setup(args) => commands::setup::run(&cli.global, args).await,
         Command::Completion { cmd } => commands::completion::run(cmd),
     }

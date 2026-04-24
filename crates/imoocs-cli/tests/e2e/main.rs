@@ -3,6 +3,7 @@ pub mod common;
 mod assignment_confirm;
 mod assignment_drafts;
 mod assignment_push;
+mod auth_logout;
 mod completion;
 #[cfg(target_os = "linux")]
 mod destructive;
@@ -13,4 +14,5 @@ mod lesson_best_effort;
 mod plumbing;
 #[cfg(target_os = "linux")]
 mod pty_probe;
+mod reset;
 mod walking_skeleton;

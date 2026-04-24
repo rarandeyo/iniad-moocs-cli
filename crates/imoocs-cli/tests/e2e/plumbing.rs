@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::common::{assert_failure_envelope, assert_success_envelope, imoocs, imoocs_in, TempXdg};
 
-/// 11 サブコマンド (cli.rs:52-106 の `Command` enum と同期)。
+/// 12 サブコマンド (`cli.rs` の `Command` enum と同期)。
 const ALL_SUBCOMMANDS: &[&str] = &[
     "version",
     "doctor",
@@ -18,13 +18,14 @@ const ALL_SUBCOMMANDS: &[&str] = &[
     "slide",
     "drive",
     "open",
+    "reset",
     "setup",
     "completion",
 ];
 
 #[test]
-fn help_lists_all_eleven_subcommands() {
-    // 1.2: `imoocs --help` → exit 0, stdout に 11 サブコマンド名すべて
+fn help_lists_all_twelve_subcommands() {
+    // 1.2: `imoocs --help` → exit 0, stdout に 12 サブコマンド名すべて
     let assert = imoocs().arg("--help").assert().success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
     for sub in ALL_SUBCOMMANDS {

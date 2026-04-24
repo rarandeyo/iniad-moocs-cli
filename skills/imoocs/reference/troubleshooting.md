@@ -54,6 +54,31 @@ imoocs auth status
 - 0 / 2 以外は「未ログイン」ではなく実障害。stderr のエラーをそのまま読み、config の破損やネットワーク障害として扱う。
 - Google (スライド PDF / Drive) 側の切れは `imoocs auth login-google`。`imoocs doctor --format json` の `googleAuthenticated` が false ならここを案内。
 - 両方まとめて確認するなら `imoocs doctor`。テキスト要約でも十分な情報が出る。機械処理したいときは `--format json`。ただし config/TOML/network 障害では success envelope ではなく failure envelope を返す。
+- セッションだけ切り直したいなら `imoocs auth logout` (keyring + `cookies.json` のみ破棄、`config.toml` は残るので username は再入力不要)。
+
+## 完全初期化 (`imoocs reset`)
+
+「別アカウントで検証したい」「設定ごとおかしいのでまっさらにしたい」「PC 譲渡前に痕跡を消したい」といった要望に使う。`auth logout` より広く、設定 / cache / draft まで消せる。
+
+先に `--dry-run` で何が消えるか確認してから実行するのが安全:
+
+```sh
+imoocs reset --dry-run
+imoocs reset --scope all --yes          # 全消し (CI / agent はこれ)
+imoocs reset --scope auth --yes         # auth logout と等価
+imoocs reset --scope config --yes       # username / preference だけリセット
+imoocs reset --scope cache --yes        # cookies / drive cache / slides を掃除
+imoocs reset --scope drafts --yes       # 未 push の提出物を破棄
+imoocs reset --scope auth,cache --yes   # CSV 複数指定 OK
+```
+
+確認プロンプトは default **No**。非 TTY で `--yes` を付けずに呼ぶと exit 3 で止まる (agent 事故防止)。keyring backend の障害が出た場合は **config.toml を残したまま** 他のスコープを消し、exit 5 を返す (username を維持して次回リトライで keyring entry を再度狙えるように)。
+
+**safety note**:
+
+- `--scope` は値が必須。`imoocs reset --scope --yes` のようなタイポは exit 2 で clap が reject する (scope 省略なら `all` と同等)。
+- `reset --scope cache` の `slides_dir` 削除は **`<cache_dir>/slides` または `/tmp/imoocs/slides`** 配下に限る。ユーザが `slides.out_dir` に共有フォルダを書いていても巻き込まない (skip + 通知)。手で消す前提。
+- 壊れた `config.toml` (parse error) があっても `reset --scope config` は通る。config の復旧経路として使える。
 
 ## `assignment push` が exit 3 (`VALIDATION_ERROR`) で止まる
 
@@ -113,7 +138,7 @@ agent の反応:
 
 - `auth status` → 0 / 2（実障害時は他の exit code）
 - `auth login` → 0 / 2
-- `auth logout` → 0
+- `auth logout` → 0 (keyring + `cookies.json` のみ破棄、`config.toml` は残す)
 - `auth export` → 0 (username と keyring 有無を text で出す)
 
 機械的に認証状態を取りたいなら `imoocs doctor --format json` を使う。failure envelope も返りうるので、必ず top-level `success` を確認する。

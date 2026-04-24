@@ -93,6 +93,7 @@ imoocs
 │   ├── fetch
 │   └── folders
 ├── open
+├── reset
 └── completion
     ├── generate
     └── install
@@ -438,15 +439,17 @@ imoocs auth login-google
 構文:
 
 ```sh
-imoocs auth logout [--keep-config]
+imoocs auth logout
 ```
 
-組み合わせ:
+挙動:
 
-| 組み合わせ | 結果 |
-|---|---|
-| 既定 | keyring と `cookies.json` を削除し、`config.toml` も削除 |
-| `--keep-config` | keyring と `cookies.json` だけ削除し、`config.toml` は残す |
+- OS keyring に保存された password を破棄する
+- `cookies.json` を削除し in-memory cookie store もクリアする
+- `config.toml` (username / preference) は **残す** — 再 login 時に再入力せず済む
+
+`config.toml` も含めてすべて消したい場合は `imoocs reset --scope config`
+(config だけ) あるいは `imoocs reset --scope all` (完全リセット) を使う。
 
 ### `auth status`
 
@@ -931,7 +934,81 @@ imoocs open <URL> [--no-fetch-slides] [--no-cache] [--lang <ja|en>]
 `open` は URL 内 year だけを見るので `--year` は無意味。`lesson show` と同じ
 best-effort 分類 (`ok` / `skipped` / `failed`) が `embeds[*].fetchStatus` に載る。
 
-## 6.11 `completion`
+## 6.11 `reset`
+
+認証情報 / 設定 / cookie / キャッシュ / draft をスコープ指定で一括削除する。
+別アカウントでの検証、完全なトラブルシュート、PC 譲渡前の初期化などの
+ユースケースで使う。`doctor` が報告するパス一覧と 1:1 で対応する。
+
+構文:
+
+```sh
+imoocs reset [--scope <SCOPE>...] [--yes] [--dry-run]
+```
+
+組み合わせ:
+
+| 組み合わせ | 結果 |
+|---|---|
+| 既定 (scope 省略) | `all` と同等。対話 TTY では確認プロンプト、非 TTY では `--yes` 必須 |
+| `--scope auth` | keyring credential + `cookies.json` |
+| `--scope config` | `config.toml` + `course-drive-folders.toml` |
+| `--scope cache` | `cookies.json` + `cache_dir/drive/` + `slides_dir` (config/CLI 指定の実パス) |
+| `--scope drafts` | `state_dir/drafts/` 配下 |
+| `--scope all` | 上記すべて |
+| 複数指定 | `--scope auth --scope cache` / `--scope auth,cache` どちらも可 |
+| `--yes` / `-y` | 確認プロンプト skip。非 TTY では必須 |
+| `--dry-run` | 消さずに対象だけ列挙して exit 0 |
+
+確認プロンプトのデフォルトは No (`y` を明示的に入力しない限り削除しない)。
+対象一覧では存在するものを `✓`、存在しないものを `·` + `(not present)` で表示。
+
+終了コード:
+
+| 状況 | exit |
+|---|---|
+| 正常削除 (一部 not present を含む) | 0 |
+| `--dry-run` | 0 |
+| 対話プロンプトで `n` | 3 (Validation) |
+| 非 TTY で `--yes` 不足 | 3 (Validation) |
+| 削除中にエラー 1 件以上 (keyring backend 障害含む) | 5 (Internal) |
+
+keyring 削除が失敗してもファイル系の削除は継続する (fail-soft)。最終 exit は
+エラー 1 件以上で 5。**ただし keyring 削除が失敗した場合に限り `config.toml`
+の削除は skip される** — 次回リトライ時に `username` から keyring entry を
+特定できるようにするため。backend 復旧後に再度 `reset --scope all --yes` を
+叩けば残った credential ごとクリーンに消える。
+
+`auth logout` との違い: `auth logout` は keyring + `cookies.json` のみで
+config は残す (`reset --scope auth` と等価)。`reset` はスコープを明示して
+config や cache まで掃ける。
+
+**safety note**:
+
+- `--scope` を付けるときは 1 つ以上の値が必須 (`imoocs reset --scope --yes`
+  のようなタイポは exit 2 で reject される)。scope を省略すれば `all` と
+  同等。
+- `reset --scope cache` は `slides.out_dir` に由来する `slides_dir` を消す
+  が、**safe root (`<cache_dir>/slides` または `/tmp/imoocs/slides`) 内に
+  ない場合は refuse + skip する**。`out_dir` に `~/Documents/slides` など
+  共有フォルダを指定していると、そこを丸ごと消されずに済む。skip された
+  ディレクトリは手作業で削除する前提。
+- `reset` は壊れた `config.toml` (parse error) でも動作する — malformed
+  config は default 扱いで通して、`--scope config` なら対象ファイルとして
+  そのまま削除する。config 復旧経路として使える。
+
+使用例:
+
+```sh
+imoocs reset --dry-run                    # 何が消えるかプレビュー
+imoocs reset --scope cache --yes          # 再ログインせず cache だけ掃除
+imoocs reset --scope all --yes            # CI / agent 向けフル初期化
+imoocs reset --scope auth,drafts          # auth 切り直し + 未 push 提出物を破棄
+```
+
+`--format` は `auth *` と同様に text 専用で、この flag を無視する。
+
+## 6.12 `completion`
 
 ### `completion generate`
 

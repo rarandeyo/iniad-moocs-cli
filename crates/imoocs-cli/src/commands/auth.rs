@@ -28,12 +28,10 @@ pub enum AuthCommand {
     },
     /// Google Workspace (INIAD SSO 経由の SAML) にログインする。スライド PDF 取得に必要。
     LoginGoogle,
-    /// 保存済みの credential と cookie を破棄する。
-    Logout {
-        /// config.toml を残す (keyring + cookies.json のみ削除)。
-        #[arg(long)]
-        keep_config: bool,
-    },
+    /// keyring の password と MOOCs session cookie を破棄する。
+    /// `config.toml` は残る (username や preference は保持)。設定ごと消す場合は
+    /// `imoocs reset --scope config` か `imoocs reset --scope all` を使う。
+    Logout,
     /// 認証状態を報告する。MOOCs にログイン済みなら exit 0、未ログインなら exit 2。
     /// config parse や network failure などの実エラー時は対応する exit code を返す。
     Status,
@@ -50,7 +48,7 @@ pub async fn run(_global: &GlobalArgs, cmd: AuthCommand) -> Result<ExitCode> {
             password_stdin,
         } => login(username, password_stdin).await,
         AuthCommand::LoginGoogle => login_google_cmd().await,
-        AuthCommand::Logout { keep_config } => logout(keep_config).await,
+        AuthCommand::Logout => logout().await,
         AuthCommand::Status => match status().await {
             Ok(code) => Ok(code),
             Err(err) => {
@@ -175,7 +173,7 @@ async fn login(username_arg: Option<String>, password_stdin: bool) -> Result<Exi
     }
 }
 
-async fn logout(keep_config: bool) -> Result<ExitCode> {
+async fn logout() -> Result<ExitCode> {
     let paths = Paths::discover()?;
     let cfg = Config::load(&paths.config_file())?;
 
@@ -185,10 +183,6 @@ async fn logout(keep_config: bool) -> Result<ExitCode> {
 
     let session = Session::new(paths.clone_paths())?;
     let _ = session.clear_cookies();
-
-    if !keep_config {
-        Config::clear(&paths.config_file())?;
-    }
 
     println!("Logged out. keyring and cookies cleared.");
     Ok(ExitCode::from(0))

@@ -126,6 +126,7 @@ imoocs assignment {list,show,submit,upload,push,drafts}  # confirm モードで�
 imoocs assignment drafts {list,show,clear}               # $XDG_STATE_HOME/imoocs/drafts/ の操作
 imoocs drive {list,search,fetch,folders}            # search/list/fetch は SAML cookie で Drive、folders は course-drive-folders.toml を表示
 imoocs open <url>                                   # URL 1 本でルーティング
+imoocs reset [--scope auth|config|cache|drafts|all] [--yes] [--dry-run]  # credential / 設定 / cache / draft を一括削除
 imoocs completion {generate,install}                # generate=stdout / install=XDG 標準パスに配置
 imoocs {doctor,version}
 ```
