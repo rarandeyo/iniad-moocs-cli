@@ -66,12 +66,7 @@ pub async fn fetch_slide_pdf(
 /// `tracing::warn!` を 1 行出す (`--quiet` 時は env filter で抑制される)。
 /// 呼び出し側は `FetchOutcome` を見て埋め込みメタデータを埋めるだけでよく、
 /// `Result` を畳む必要がない。
-pub async fn fetch_best_effort(
-    session: &Session,
-    paths: &Paths,
-    embed_url: &str,
-    no_cache: bool,
-) -> FetchOutcome {
+pub async fn fetch_best_effort(session: &Session, paths: &Paths, embed_url: &str, no_cache: bool) -> FetchOutcome {
     let res = fetch_slide_pdf(session, paths, embed_url, no_cache).await;
     match &res {
         Ok(_) => {}
@@ -497,7 +492,10 @@ mod tests {
     fn classify_ok_fills_all_metadata() {
         let out = classify_fetch_outcome(Ok(ok_result()));
         assert_eq!(out.status, FetchStatus::Ok);
-        assert_eq!(out.local_pdf_path.as_deref(), Some(std::path::Path::new("/tmp/slide.pdf")));
+        assert_eq!(
+            out.local_pdf_path.as_deref(),
+            Some(std::path::Path::new("/tmp/slide.pdf"))
+        );
         assert_eq!(out.size_bytes, Some(123));
         assert_eq!(out.page_count, Some(4));
         assert_eq!(out.fetched_at.as_deref(), Some("2026-04-24T00:00:00Z"));

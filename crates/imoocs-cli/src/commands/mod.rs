@@ -37,12 +37,7 @@ pub fn apply_slides_config(paths: Paths, cli_override: Option<&str>) -> Result<P
 /// 各埋め込みに書き戻す。`fetch_best_effort` が内部で warn + skip するので
 /// 呼び出し側は `Result` を畳む必要がない。Google SSO 未ログインや一時的な
 /// ネットワーク障害でも呼び出し元は exit 0 で先に進める。
-pub(crate) async fn populate_slide_pdfs(
-    session: &Session,
-    paths: &Paths,
-    embeds: &mut [Embed],
-    no_cache: bool,
-) {
+pub(crate) async fn populate_slide_pdfs(session: &Session, paths: &Paths, embeds: &mut [Embed], no_cache: bool) {
     populate_slide_pdfs_with(embeds, |embed_url| async move {
         fetch_best_effort(session, paths, &embed_url, no_cache).await
     })
@@ -167,7 +162,11 @@ mod tests {
 
     #[tokio::test]
     async fn populate_slide_pdfs_records_skipped_and_failed_without_propagating() {
-        let mut embeds = vec![slides_embed("slide-a"), slides_embed("slide-b"), slides_embed("slide-c")];
+        let mut embeds = vec![
+            slides_embed("slide-a"),
+            slides_embed("slide-b"),
+            slides_embed("slide-c"),
+        ];
 
         populate_slide_pdfs_with(&mut embeds, |embed_url| {
             let name = embed_url;
