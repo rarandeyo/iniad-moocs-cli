@@ -12,6 +12,13 @@ description = "CLI for INIAD MOOCs — imoocs"
 name = "imoocs"
 path = "src/main.rs"
 
+# `tests/e2e/` 配下を 1 つの test crate にまとめる。`tests/e2e.rs` だと
+# `tests/e2e/mod.rs` と E0761 で衝突するので、main.rs エントリ + パス明示に
+# するのが Cargo の慣例。
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+
 [dependencies]
 imoocs-core = { path = "../imoocs-core" }
 anyhow.workspace = true
@@ -28,3 +35,13 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 regex.workspace = true
 once_cell.workspace = true
+
+[dev-dependencies]
+imoocs-core = { path = "../imoocs-core" }
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+serde_json.workspace = true
+serial_test = "3"
+uuid = { version = "1", features = ["v4"] }
+# rexpect は Step 3 章 5 の PTY テスト着手時に追加
