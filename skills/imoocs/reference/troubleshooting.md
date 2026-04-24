@@ -47,11 +47,13 @@
 imoocs auth status
 # exit 0 → MOOCs OK
 # exit 2 → 未ログイン / セッション切れ
+# other  → config parse / network / internal error
 ```
 
 - `exit 2` なら `imoocs auth login`。初回やユーザ名を変える場合は `--username <s...>` / `--password-stdin`。
+- 0 / 2 以外は「未ログイン」ではなく実障害。stderr のエラーをそのまま読み、config の破損やネットワーク障害として扱う。
 - Google (スライド PDF / Drive) 側の切れは `imoocs auth login-google`。`imoocs doctor --format json` の `googleAuthenticated` が false ならここを案内。
-- 両方まとめて確認するなら `imoocs doctor`。テキスト要約でも十分な情報が出る。機械処理したいときは `--format json`。
+- 両方まとめて確認するなら `imoocs doctor`。テキスト要約でも十分な情報が出る。機械処理したいときは `--format json`。ただし config/TOML/network 障害では success envelope ではなく failure envelope を返す。
 
 ## `assignment push` が exit 3 (`VALIDATION_ERROR`) で止まる
 
@@ -93,12 +95,12 @@ agent の対応:
 
 仕様。`--format json` を付けても無視される。agent は exit code と stderr で判断する:
 
-- `auth status` → 0 / 2
+- `auth status` → 0 / 2（実障害時は他の exit code）
 - `auth login` → 0 / 2
 - `auth logout` → 0
 - `auth export` → 0 (username と keyring 有無を text で出す)
 
-機械的に認証状態を取りたいなら `imoocs doctor --format json` を使う。
+機械的に認証状態を取りたいなら `imoocs doctor --format json` を使う。failure envelope も返りうるので、必ず top-level `success` を確認する。
 
 ## Drive が 50 件で切れる
 
@@ -112,4 +114,3 @@ agent の対応:
   IMOOCS_YEAR=2025 imoocs course show COS201
   ```
 - URL に年度が含まれている場合 (`/courses/2025/COS201`) は `imoocs open <url>` がそのまま年度を拾う。
-

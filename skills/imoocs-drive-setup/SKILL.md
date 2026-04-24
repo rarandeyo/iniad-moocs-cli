@@ -34,7 +34,7 @@ INIAD MOOCs で履修中のコースと、授業資料が置かれている Goog
 作業開始前に 1 度だけ:
 
 1. `imoocs --version` が通る (未インストールならインストール案内)。
-2. `imoocs auth status` → exit 0 (MOOCs 認証済)。exit 2 なら `imoocs auth login` を先に案内して中断。
+2. `imoocs auth status` → exit 0 (MOOCs 認証済)。exit 2 なら `imoocs auth login` を先に案内して中断。0 / 2 以外なら config parse や network の実障害なので、ログイン不足ではなくエラーとして止める。
 3. Google Drive に触れること。`imoocs auth login-google` が済んでいる状態で `imoocs drive search --exact "[受講生]講義資料"` が exit 0 / `success: true` で返れば OK。exit 2 なら `imoocs auth login-google` を案内。`gws-drive` 側の OAuth は **このスキルでは不要**。
 4. 保存先ディレクトリを決定する。`$XDG_CONFIG_HOME` があればそこ、無ければ `$HOME/.config`。最終的な書き込み先は `$XDG_CONFIG_HOME/imoocs/course-drive-folders.toml`。
 

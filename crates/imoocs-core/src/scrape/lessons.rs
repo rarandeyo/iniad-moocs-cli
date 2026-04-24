@@ -4,7 +4,7 @@
 //! の見出しがあり、ネストしたリストの各 `<a href>` が lesson URL を指す。
 //! lesson は section 見出し (親 `<li>` の先頭 link / text) でグルーピングされることがある。
 
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use scraper::{ElementRef, Html};
 
@@ -18,7 +18,8 @@ pub fn scrape_course_lessons(html: &str, year: Year, course_id: &str) -> Result<
     let document = Html::parse_document(html);
     let aside_selector = parse_selector("aside a[href]")?;
 
-    let mut seen = BTreeMap::new();
+    let mut seen = BTreeSet::new();
+    let mut lessons = Vec::new();
     for a in document.select(&aside_selector) {
         let Some(href) = a.value().attr("href") else { continue };
         let absolute = absolutize(href);
@@ -35,21 +36,23 @@ pub fn scrape_course_lessons(html: &str, year: Year, course_id: &str) -> Result<
         }
 
         let title = a.text().collect::<String>().trim().to_string();
-        // lesson_id で重複排除。最初に出現したエントリを優先する
-        seen.entry(lesson_id.clone()).or_insert_with(|| {
-            let section = find_section(&a);
-            LessonRef {
-                year,
-                course_id: course_id.to_string(),
-                lesson_id,
-                title,
-                url: absolute,
-                section,
-            }
+        // lesson_id で重複排除しつつ、sidebar で最初に現れた順序を保つ。
+        if !seen.insert(lesson_id.clone()) {
+            continue;
+        }
+
+        let section = find_section(&a);
+        lessons.push(LessonRef {
+            year,
+            course_id: course_id.to_string(),
+            lesson_id,
+            title,
+            url: absolute,
+            section,
         });
     }
 
-    Ok(seen.into_values().collect())
+    Ok(lessons)
 }
 
 fn find_section(el: &ElementRef<'_>) -> Option<String> {
@@ -150,4 +153,26 @@ pub fn scrape_course_lecture_groups(html: &str, year: Year, course_id: &str) -> 
     }
 
     Ok(groups)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrape_course_lessons_preserves_sidebar_order() {
+        let html = r#"
+        <aside>
+          <ul class="sidebar-menu">
+            <li><a href="/courses/2026/INI301/DS-10">Later</a></li>
+            <li><a href="/courses/2026/INI301/DS-02">Earlier</a></li>
+            <li><a href="/courses/2026/INI301/DS-10">Duplicate Later</a></li>
+          </ul>
+        </aside>
+        "#;
+
+        let lessons = scrape_course_lessons(html, 2026, "INI301").expect("lessons");
+        let ids: Vec<_> = lessons.iter().map(|l| l.lesson_id.as_str()).collect();
+        assert_eq!(ids, vec!["DS-10", "DS-02"]);
+    }
 }

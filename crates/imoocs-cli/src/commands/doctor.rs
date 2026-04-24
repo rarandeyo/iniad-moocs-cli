@@ -1,13 +1,14 @@
 use std::fmt::Write as _;
 use std::process::ExitCode;
 
-use anyhow::Result;
 use imoocs_core::{
     auth::{is_logged_in_google, is_logged_in_moocs},
     config::{Config, ConfirmMode},
+    envelope::ErrorDetail,
     paths::Paths,
     schemas::{CompletionStatus, DoctorReport, SkillDetectionMethod},
     session::Session,
+    ImoocsError,
 };
 
 use crate::cli::GlobalArgs;
@@ -18,15 +19,13 @@ use crate::skills;
 
 /// `imoocs doctor` の生データ生成。envelope emit を含まないので
 /// `imoocs setup` 等のファサードから再利用できる。
-pub async fn compute_report() -> Result<DoctorReport> {
+pub async fn compute_report() -> std::result::Result<DoctorReport, ImoocsError> {
     let paths = Paths::discover()?;
-    let cfg = Config::load(&paths.config_file()).unwrap_or_default();
+    let cfg = Config::load(&paths.config_file())?;
+    let drive_folders = drive::compute_folders_report(&paths)?.map(|cdf| cdf.summary());
     let session = Session::new(paths.clone_paths())?;
-    let moocs_auth = is_logged_in_moocs(&session).await.unwrap_or(false);
-    let google_auth = is_logged_in_google(&session).await.unwrap_or(false);
-    let drive_folders = drive::compute_folders_report(&paths)
-        .unwrap_or(None)
-        .map(|cdf| cdf.summary());
+    let moocs_auth = is_logged_in_moocs(&session).await?;
+    let google_auth = is_logged_in_google(&session).await?;
     let confirm_mode = cfg.assignment.as_ref().and_then(|a| a.confirm);
     let completion = detect_completion_status();
     let skills = skills::detect_skills();
@@ -55,11 +54,15 @@ pub async fn compute_report() -> Result<DoctorReport> {
     })
 }
 
-pub async fn run(global: &GlobalArgs) -> Result<ExitCode> {
-    let report = compute_report().await?;
-    let moocs_auth = report.moocs_authenticated;
-    output::emit_success_text(report, global.format, render);
-    Ok(ExitCode::from(if moocs_auth { 0 } else { 2 }))
+pub async fn run(global: &GlobalArgs) -> anyhow::Result<ExitCode> {
+    match compute_report().await {
+        Ok(report) => {
+            let moocs_auth = report.moocs_authenticated;
+            output::emit_success_text(report, global.format, render);
+            Ok(ExitCode::from(if moocs_auth { 0 } else { 2 }))
+        }
+        Err(err) => Ok(emit_err(err)),
+    }
 }
 
 /// 現在の `$SHELL` に対応する completion の配置状況を調べる。
@@ -181,6 +184,12 @@ fn method_str(method: SkillDetectionMethod) -> &'static str {
         SkillDetectionMethod::Filesystem => "filesystem",
         SkillDetectionMethod::Unknown => "unknown",
     }
+}
+
+fn emit_err(err: ImoocsError) -> ExitCode {
+    let code = err.exit_code().as_u8();
+    output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
+    ExitCode::from(code)
 }
 
 #[cfg(test)]

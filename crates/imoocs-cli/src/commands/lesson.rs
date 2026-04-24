@@ -4,10 +4,8 @@ use anyhow::Result;
 use clap::Subcommand;
 use imoocs_core::{
     api,
-    api::slides::fetch_slide_pdf,
     envelope::ErrorDetail,
     paths::Paths,
-    schemas::Embed,
     scrape::url::{self, MoocsPath},
     session::Session,
     ImoocsError,
@@ -94,7 +92,11 @@ pub async fn run(global: &GlobalArgs, cmd: LessonCommand) -> Result<ExitCode> {
                     Err(e) => return Ok(emit_err(e)),
                 };
                 if fetch {
-                    apply_fetch_slides(&session, &paths, &mut with.lesson.embeds, no_cache).await;
+                    if let Err(e) =
+                        super::populate_slide_pdfs(&session, &paths, &mut with.lesson.embeds, no_cache).await
+                    {
+                        return Ok(emit_err(e));
+                    }
                 }
                 output::emit_success(with, global.format);
                 Ok(ExitCode::from(0))
@@ -110,7 +112,11 @@ pub async fn run(global: &GlobalArgs, cmd: LessonCommand) -> Result<ExitCode> {
                 {
                     Ok(mut content) => {
                         if fetch {
-                            apply_fetch_slides(&session, &paths, &mut content.embeds, no_cache).await;
+                            if let Err(e) =
+                                super::populate_slide_pdfs(&session, &paths, &mut content.embeds, no_cache).await
+                            {
+                                return Ok(emit_err(e));
+                            }
                         }
                         output::emit_success(content, global.format);
                         Ok(ExitCode::from(0))
@@ -168,34 +174,6 @@ async fn resolve_target(
         lesson_id: lesson_id.expect("clap guarantees lesson_id when --url is missing"),
         page_id: page,
     })
-}
-
-async fn apply_fetch_slides(session: &Session, paths: &Paths, embeds: &mut [Embed], no_cache: bool) {
-    for embed in embeds.iter_mut() {
-        if let Embed::GoogleSlides {
-            embed_url,
-            local_pdf_path,
-            size_bytes,
-            page_count,
-            fetched_at,
-            ..
-        } = embed
-        {
-            match fetch_slide_pdf(session, paths, embed_url, no_cache).await {
-                Ok(res) => {
-                    *local_pdf_path = Some(res.local_pdf_path);
-                    *size_bytes = Some(res.size_bytes);
-                    if res.page_count > 0 {
-                        *page_count = Some(res.page_count);
-                    }
-                    *fetched_at = Some(res.fetched_at);
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, embed = %embed_url, "failed to fetch slide");
-                }
-            }
-        }
-    }
 }
 
 fn emit_err(err: ImoocsError) -> ExitCode {

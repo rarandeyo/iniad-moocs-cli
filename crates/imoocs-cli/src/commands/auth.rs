@@ -35,6 +35,7 @@ pub enum AuthCommand {
         keep_config: bool,
     },
     /// 認証状態を報告する。MOOCs にログイン済みなら exit 0、未ログインなら exit 2。
+    /// config parse や network failure などの実エラー時は対応する exit code を返す。
     Status,
     /// 保存済みの username と keyring entry の有無を表示する。
     /// password 自体は出力されない — 必要なら OS の keyring
@@ -50,7 +51,13 @@ pub async fn run(_global: &GlobalArgs, cmd: AuthCommand) -> Result<ExitCode> {
         } => login(username, password_stdin).await,
         AuthCommand::LoginGoogle => login_google_cmd().await,
         AuthCommand::Logout { keep_config } => logout(keep_config).await,
-        AuthCommand::Status => status().await,
+        AuthCommand::Status => match status().await {
+            Ok(code) => Ok(code),
+            Err(err) => {
+                print_auth_error("認証状態確認失敗", &err);
+                Ok(ExitCode::from(err.exit_code().as_u8()))
+            }
+        },
         AuthCommand::Export => export().await,
     }
 }
@@ -187,13 +194,13 @@ async fn logout(keep_config: bool) -> Result<ExitCode> {
     Ok(ExitCode::from(0))
 }
 
-async fn status() -> Result<ExitCode> {
+async fn status() -> std::result::Result<ExitCode, ImoocsError> {
     let paths = Paths::discover()?;
     let cfg = Config::load(&paths.config_file())?;
     let session = Session::new(paths.clone_paths())?;
 
-    let moocs_auth = is_logged_in_moocs(&session).await.unwrap_or(false);
-    let google_auth = is_logged_in_google(&session).await.unwrap_or(false);
+    let moocs_auth = is_logged_in_moocs(&session).await?;
+    let google_auth = is_logged_in_google(&session).await?;
     let has_pw = cfg
         .username
         .as_deref()
@@ -236,6 +243,13 @@ fn mark(ok: bool) -> &'static str {
         "✓"
     } else {
         "✗"
+    }
+}
+
+fn print_auth_error(prefix: &str, err: &ImoocsError) {
+    eprintln!("✗ {prefix}: {err}");
+    if let Some(hint) = err.hint() {
+        eprintln!("  hint: {hint}");
     }
 }
 

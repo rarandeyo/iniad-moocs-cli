@@ -21,8 +21,8 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
     let doc = Html::parse_fragment(html);
     let root = doc.root_element();
 
-    let mut fields: Vec<ProblemField> = Vec::new();
-    let mut radio_groups: BTreeMap<String, RadioGroup> = BTreeMap::new();
+    let mut fields: Vec<FieldBuilder> = Vec::new();
+    let mut choice_group_positions: BTreeMap<String, usize> = BTreeMap::new();
     let mut last_label: Option<String> = None;
 
     for descendant in root.descendants() {
@@ -47,11 +47,11 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
                 if let Some(pid) = el.value().attr("name") {
                     let pid = pid.to_string();
                     let label = last_label.clone().unwrap_or_else(|| pid.clone());
-                    fields.push(ProblemField::Textarea {
+                    fields.push(FieldBuilder::Field(ProblemField::Textarea {
                         pid,
                         label,
                         current_value: None,
-                    });
+                    }));
                     last_label = None;
                 }
             }
@@ -65,37 +65,47 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
                 match ty.as_str() {
                     "text" | "number" | "email" | "url" => {
                         let label = last_label.clone().unwrap_or_else(|| pid.clone());
-                        fields.push(ProblemField::Text {
+                        fields.push(FieldBuilder::Field(ProblemField::Text {
                             pid,
                             label,
                             current_value: None,
-                        });
+                        }));
                         last_label = None;
                     }
                     "file" => {
                         let accept = el.value().attr("accept").map(str::to_string);
                         let label = last_label.clone().unwrap_or_else(|| pid.clone());
-                        fields.push(ProblemField::File {
+                        fields.push(FieldBuilder::Field(ProblemField::File {
                             pid,
                             label,
                             accept,
                             uploaded_file: None,
-                        });
+                        }));
                         last_label = None;
                     }
                     "radio" | "checkbox" => {
                         let value = el.value().attr("value").unwrap_or("").to_string();
                         let option_text = nearest_label_text(&el);
-                        let entry = radio_groups.entry(pid.clone()).or_insert_with(|| RadioGroup {
-                            pid: pid.clone(),
-                            label: last_label.clone().unwrap_or_else(|| pid.clone()),
-                            is_checkbox: ty == "checkbox",
-                            options: Vec::new(),
-                        });
-                        entry.options.push(RadioOption {
+                        let option = RadioOption {
                             value,
                             text: option_text,
-                        });
+                        };
+                        if let Some(&idx) = choice_group_positions.get(&pid) {
+                            let group = fields[idx]
+                                .choice_group_mut()
+                                .expect("choice group index must point to a choice group");
+                            group.options.push(option);
+                        } else {
+                            let label = last_label.clone().unwrap_or_else(|| pid.clone());
+                            let idx = fields.len();
+                            fields.push(FieldBuilder::ChoiceGroup(RadioGroup {
+                                pid: pid.clone(),
+                                label,
+                                is_checkbox: ty == "checkbox",
+                                options: vec![option],
+                            }));
+                            choice_group_positions.insert(pid, idx);
+                        }
                         // group 内で最初の option に限って last_label を消費する
                         last_label = None;
                     }
@@ -106,28 +116,28 @@ pub fn parse_problem_form(html: &str) -> Vec<ProblemField> {
         }
     }
 
-    // radio/checkbox group を追加する。BTreeMap の順序は name 順になるが、
-    // 決定論的な出力としては insertion order の近似として十分
-    for (_, group) in radio_groups.into_iter() {
-        let variant = if group.is_checkbox {
-            ProblemField::Checkbox {
-                pid: group.pid,
-                label: group.label,
-                options: group.options,
-                current_value: None,
-            }
-        } else {
-            ProblemField::Radio {
-                pid: group.pid,
-                label: group.label,
-                options: group.options,
-                current_value: None,
-            }
-        };
-        fields.push(variant);
+    fields.into_iter().map(FieldBuilder::into_problem_field).collect()
+}
+
+enum FieldBuilder {
+    Field(ProblemField),
+    ChoiceGroup(RadioGroup),
+}
+
+impl FieldBuilder {
+    fn into_problem_field(self) -> ProblemField {
+        match self {
+            Self::Field(field) => field,
+            Self::ChoiceGroup(group) => group.into_problem_field(),
+        }
     }
 
-    fields
+    fn choice_group_mut(&mut self) -> Option<&mut RadioGroup> {
+        match self {
+            Self::ChoiceGroup(group) => Some(group),
+            Self::Field(_) => None,
+        }
+    }
 }
 
 struct RadioGroup {
@@ -135,6 +145,26 @@ struct RadioGroup {
     label: String,
     is_checkbox: bool,
     options: Vec<RadioOption>,
+}
+
+impl RadioGroup {
+    fn into_problem_field(self) -> ProblemField {
+        if self.is_checkbox {
+            ProblemField::Checkbox {
+                pid: self.pid,
+                label: self.label,
+                options: self.options,
+                current_value: None,
+            }
+        } else {
+            ProblemField::Radio {
+                pid: self.pid,
+                label: self.label,
+                options: self.options,
+                current_value: None,
+            }
+        }
+    }
 }
 
 fn contains_input(el: &ElementRef<'_>) -> bool {
@@ -244,5 +274,35 @@ fn field_pid(f: &ProblemField) -> &str {
         | ProblemField::Radio { pid, .. }
         | ProblemField::Checkbox { pid, .. }
         | ProblemField::File { pid, .. } => pid,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_problem_form_preserves_dom_order_for_mixed_fields() {
+        let html = r#"
+        <p>Choose one</p>
+        <label class="radio-inline"><input type="radio" name="p3" value="a">A</label>
+        <label class="radio-inline"><input type="radio" name="p3" value="b">B</label>
+        <p>Explain</p>
+        <textarea name="p1"></textarea>
+        <p>Pick many</p>
+        <label class="checkbox-inline"><input type="checkbox" name="p2" value="x">X</label>
+        <label class="checkbox-inline"><input type="checkbox" name="p2" value="y">Y</label>
+        <p>Upload</p>
+        <input type="file" name="p4" />
+        "#;
+
+        let fields = parse_problem_form(html);
+        let ids: Vec<_> = fields.iter().map(field_pid).collect();
+        assert_eq!(ids, vec!["p3", "p1", "p2", "p4"]);
+
+        assert!(matches!(fields[0], ProblemField::Radio { .. }));
+        assert!(matches!(fields[1], ProblemField::Textarea { .. }));
+        assert!(matches!(fields[2], ProblemField::Checkbox { .. }));
+        assert!(matches!(fields[3], ProblemField::File { .. }));
     }
 }

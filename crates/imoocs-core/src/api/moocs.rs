@@ -199,7 +199,7 @@ pub async fn get_lesson_with_assignments(
                 get_assignment_detail(session, &key, lang).await.ok()
             }
         })
-        .buffer_unordered(4)
+        .buffered(4)
         .collect()
         .await;
     Ok(LessonWithAssignments {
@@ -359,4 +359,24 @@ pub async fn get_lesson_pages(session: &Session, year: Year, course_id: &str, le
         title,
         pages,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::stream::{self, StreamExt};
+    use tokio::time::{sleep, Duration};
+
+    #[tokio::test(start_paused = true)]
+    async fn buffered_collection_preserves_input_order() {
+        let tasks: Vec<_> = [(30_u64, "first"), (5, "second"), (0, "third")]
+            .into_iter()
+            .map(|(delay_ms, label)| async move {
+                sleep(Duration::from_millis(delay_ms)).await;
+                label
+            })
+            .collect();
+
+        let got: Vec<_> = stream::iter(tasks).buffered(3).collect().await;
+        assert_eq!(got, vec!["first", "second", "third"]);
+    }
 }

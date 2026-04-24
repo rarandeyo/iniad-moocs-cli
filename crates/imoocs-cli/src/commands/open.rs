@@ -97,28 +97,12 @@ pub async fn run(global: &GlobalArgs, args: OpenArgs) -> Result<ExitCode> {
                 Ok(w) => w,
                 Err(e) => return Ok(emit_err(e)),
             };
-            if args.fetch_slides {
-                use imoocs_core::api::slides::fetch_slide_pdf;
-                use imoocs_core::schemas::Embed;
-                for embed in with.lesson.embeds.iter_mut() {
-                    if let Embed::GoogleSlides {
-                        embed_url,
-                        local_pdf_path,
-                        size_bytes,
-                        page_count,
-                        fetched_at,
-                        ..
-                    } = embed
-                    {
-                        if let Ok(res) = fetch_slide_pdf(&session, &paths, embed_url, args.no_cache).await {
-                            *local_pdf_path = Some(res.local_pdf_path);
-                            *size_bytes = Some(res.size_bytes);
-                            if res.page_count > 0 {
-                                *page_count = Some(res.page_count);
-                            }
-                            *fetched_at = Some(res.fetched_at);
-                        }
-                    }
+            let fetch = args.fetch_slides || args.no_cache;
+            if fetch {
+                if let Err(e) =
+                    super::populate_slide_pdfs(&session, &paths, &mut with.lesson.embeds, args.no_cache).await
+                {
+                    return Ok(emit_err(e));
                 }
             }
             output::emit_success(OpenResult::Lesson(with), global.format);

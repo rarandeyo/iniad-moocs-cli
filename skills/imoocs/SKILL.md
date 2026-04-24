@@ -24,7 +24,7 @@ URL や明示的な MOOCs の単語がなくても、履修 / 課題 / 出席 / 
 
 1. **ブラウザや Playwright を開かない**。前身 MCP (playwright-mcp ベース) とは違い、この CLI は URL 1 本受け取れば内部でスクレイプ / ログイン / PDF 合成まで完結する。agent が DOM を触る必要はない。
 2. **`imoocs open <url>` を起点に据える**。URL を渡されたら、パスを手で parse せず `imoocs open <url>` に投げる。返ってきた envelope の `data.type` (`courses` / `course` / `lesson` / `assignment`) で次の一手を決める。
-3. **text 出力は人間向け、JSON envelope は agent 向け**。`course` / `lesson` / `assignment` / `slide` / `drive` / `open` は常に JSON。`auth *` は text 専用で exit code で分岐。`doctor` / `setup` は text がデフォルトなので、機械的に処理したいなら `--format json` を付ける。
+3. **text 出力は人間向け、JSON envelope は agent 向け**。`course` / `lesson` / `assignment` / `slide` / `drive` / `open` は常に JSON。`auth *` は text 専用で exit code で分岐。`doctor` / `setup` は text がデフォルトなので、機械的に処理したいなら `--format json` を付ける。実際の config/network 障害では `doctor --format json` も failure envelope で落ちるので、`success: true` を前提にしない。
 4. **confirm モードは 2-step (stage → push)**。`assignment.confirm = "confirm"` のとき、`imoocs assignment submit` / `upload` は **サーバに送らずローカル draft に stage するだけ** (HTTP を一切叩かない、非 TTY/TTY 共通)。envelope は `StagedResult { staged: true, submitted: false, draftPath, hint }` で exit 0。確定は TTY 必須の `imoocs assignment push` が担当し、対話プロンプトで `y` を押したときだけ `put_answers(force=true)` と各 `post_file(force=true)` を順次送信する。全部成功で draft 削除、途中失敗で draft 保持 (`API_ERROR`/`NETWORK_ERROR`)。`assignment.confirm = "auto"` の場合は従来通り submit/upload が即サーバ確定し、envelope `AnswerResult { submitted: true }` を返す。`push` を叩く必要はない。`submitted` の値でどの段階まで進んだか判別する: stage 済は `false`、push 済は `true`。
 5. **exit code で分岐**。envelope の `success` も見るが、以下の exit code だけでも大半の分岐が付く:
 
@@ -45,8 +45,8 @@ URL や明示的な MOOCs の単語がなくても、履修 / 課題 / 出席 / 
 作業開始前に 1 度だけ確認する。ユーザが「ログインしてる？」と明示的に聞いた場合もここに戻る。
 
 1. `imoocs --version` が通ることを確認 (PATH に入っていない場合はインストールを案内)。
-2. `imoocs auth status` を叩く。exit 0 なら MOOCs 認証済、exit 2 なら未ログインなので `imoocs setup` (初回) か `imoocs auth login` (再ログイン) を案内する。
-3. 詳細が要るときだけ `imoocs doctor --format json` を叩き、認証状態や設定を読む。毎回叩かなくてよい。
+2. `imoocs auth status` を叩く。exit 0 なら MOOCs 認証済、exit 2 なら未ログインなので `imoocs setup` (初回) か `imoocs auth login` (再ログイン) を案内する。0/2 以外は config parse や network などの実エラーなので、そのまま障害として扱う。
+3. 詳細が要るときだけ `imoocs doctor --format json` を叩き、認証状態や設定を読む。毎回叩かなくてよい。failure envelope が返ったら「未ログイン」ではなく診断自体の失敗として扱う。
 4. スライド PDF が必要 / Drive 添付を触る場合のみ、Google 側の認証も確認する (`imoocs auth login-google`)。
 
 初回セットアップ系の `VALIDATION_ERROR` で止まったら、`imoocs setup` を走らせるのが最短。
