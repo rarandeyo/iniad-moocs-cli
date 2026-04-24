@@ -6,4 +6,8 @@ version: 3
 # (悪意ある変更が混入していないか community が検証する時間の確保)。
 min_age: 7
 
+# release.yml は cargo-dist が管理するため除外
+files:
+  - pattern: .github/workflows/ci.yml
+
 ignore_actions: []

@@ -26,6 +26,12 @@ npm-package = "iniad-moocs-cli"
 # Publish jobs to run in CI
 publish-jobs = ["npm"]
 
+[dist.github-action-commits]
+"actions/checkout" = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+"actions/upload-artifact" = "b7c566a772e6b6bfb58ed0dc250532a479d7789f"
+"actions/download-artifact" = "37930b1c2abaa49bbe596cd826c3c89aef350131"
+"actions/setup-node" = "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e"
+
 # aarch64-linux を GitHub 公式 ARM runner で native build (cross 回避)
 [dist.github-custom-runners.aarch64-unknown-linux-gnu]
 runner = "ubuntu-24.04-arm"
