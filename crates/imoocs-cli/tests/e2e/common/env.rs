@@ -44,10 +44,19 @@ impl TempXdg {
 
     /// `<XDG_CONFIG_HOME>/imoocs/config.toml` を書いてパスを返す。
     pub fn write_config(&self, body: &str) -> PathBuf {
+        self.write_imoocs_config_file("config.toml", body)
+    }
+
+    /// `<XDG_CONFIG_HOME>/imoocs/course-drive-folders.toml` を書いてパスを返す。
+    pub fn write_drive_folders(&self, body: &str) -> PathBuf {
+        self.write_imoocs_config_file("course-drive-folders.toml", body)
+    }
+
+    fn write_imoocs_config_file(&self, name: &str, body: &str) -> PathBuf {
         let dir = self.config.join("imoocs");
         fs::create_dir_all(&dir).expect("create imoocs config dir");
-        let path = dir.join("config.toml");
-        fs::write(&path, body).expect("write config.toml");
+        let path = dir.join(name);
+        fs::write(&path, body).unwrap_or_else(|e| panic!("write {name}: {e}"));
         path
     }
 
