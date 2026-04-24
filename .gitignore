@@ -19,3 +19,4 @@ Cargo.lock.bak
 
 # codex plugin が作る session marker
 /.codex
+skills-lock.json
