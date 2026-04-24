@@ -472,4 +472,3 @@ pub struct CompletionStatus {
     pub path: PathBuf,
     pub installed: bool,
 }
-
