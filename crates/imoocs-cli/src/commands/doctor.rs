@@ -6,7 +6,7 @@ use imoocs_core::{
     config::{Config, ConfirmMode},
     envelope::ErrorDetail,
     paths::Paths,
-    schemas::{CompletionStatus, DoctorReport, SkillDetectionMethod},
+    schemas::{CompletionStatus, DoctorReport},
     session::Session,
     ImoocsError,
 };
@@ -15,7 +15,6 @@ use crate::cli::GlobalArgs;
 use crate::commands::completion::{completion_target_path, detect_shell_from_env};
 use crate::commands::drive;
 use crate::output;
-use crate::skills;
 
 /// `imoocs doctor` の生データ生成。envelope emit を含まないので
 /// `imoocs setup` 等のファサードから再利用できる。
@@ -28,15 +27,12 @@ pub async fn compute_report() -> std::result::Result<DoctorReport, ImoocsError> 
     let google_auth = is_logged_in_google(&session).await?;
     let confirm_mode = cfg.assignment.as_ref().and_then(|a| a.confirm);
     let completion = detect_completion_status();
-    let skills = skills::detect_skills();
 
     let quick_start_complete = moocs_auth
         && google_auth
         && confirm_mode.is_some()
         && completion.as_ref().is_some_and(|c| c.installed)
-        && drive_folders.as_ref().is_some_and(|s| s.total > 0 && s.unresolved == 0)
-        && skills.imoocs
-        && skills.imoocs_drive_setup;
+        && drive_folders.as_ref().is_some_and(|s| s.total > 0 && s.unresolved == 0);
 
     Ok(DoctorReport {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -49,7 +45,6 @@ pub async fn compute_report() -> std::result::Result<DoctorReport, ImoocsError> 
         drive_folders,
         confirm_mode,
         completion,
-        skills,
         quick_start_complete,
     })
 }
@@ -113,26 +108,6 @@ fn render(r: &DoctorReport) -> String {
             );
         }
     }
-    match (r.skills.imoocs, r.skills.imoocs_drive_setup, r.skills.method) {
-        (true, true, method) => {
-            let _ = writeln!(out, "  ✓ skill 検出 ({} 経由)", method_str(method));
-        }
-        (_, _, SkillDetectionMethod::Unknown) => {
-            let _ = writeln!(
-                out,
-                "  ⚠ skill 未検出 — `gh skill install rarandeyo/iniad-moocs-cli {{imoocs,imoocs-drive-setup}}` で追加"
-            );
-        }
-        (im, ds, method) => {
-            let _ = writeln!(
-                out,
-                "  ⚠ skill 一部未検出 ({} 経由): imoocs={}, imoocs-drive-setup={}",
-                method_str(method),
-                mark(im),
-                mark(ds),
-            );
-        }
-    }
     match &r.drive_folders {
         Some(s) if s.total > 0 && s.unresolved == 0 => {
             let _ = writeln!(out, "  ✓ Drive folders ({} courses)", s.total);
@@ -178,14 +153,6 @@ fn confirm_str(mode: ConfirmMode) -> &'static str {
     }
 }
 
-fn method_str(method: SkillDetectionMethod) -> &'static str {
-    match method {
-        SkillDetectionMethod::Gh => "gh",
-        SkillDetectionMethod::Filesystem => "filesystem",
-        SkillDetectionMethod::Unknown => "unknown",
-    }
-}
-
 fn emit_err(err: ImoocsError) -> ExitCode {
     let code = err.exit_code().as_u8();
     output::emit_failure::<serde_json::Value>(&ErrorDetail::from_error(&err));
@@ -195,7 +162,7 @@ fn emit_err(err: ImoocsError) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use imoocs_core::schemas::{DriveFoldersSummary, SkillDetectionReport};
+    use imoocs_core::schemas::DriveFoldersSummary;
     use std::path::PathBuf;
 
     fn all_green() -> DoctorReport {
@@ -218,11 +185,6 @@ mod tests {
                 path: PathBuf::from("/c/fish/completions/imoocs.fish"),
                 installed: true,
             }),
-            skills: SkillDetectionReport {
-                method: SkillDetectionMethod::Gh,
-                imoocs: true,
-                imoocs_drive_setup: true,
-            },
             quick_start_complete: true,
         }
     }
@@ -237,8 +199,6 @@ mod tests {
             && r.drive_folders
                 .as_ref()
                 .is_some_and(|s| s.total > 0 && s.unresolved == 0)
-            && r.skills.imoocs
-            && r.skills.imoocs_drive_setup
     }
 
     #[test]
@@ -271,13 +231,6 @@ mod tests {
             resolved: 2,
             unresolved: 1,
         });
-        assert!(!derive(&r));
-    }
-
-    #[test]
-    fn missing_skill_is_incomplete() {
-        let mut r = all_green();
-        r.skills.imoocs_drive_setup = false;
         assert!(!derive(&r));
     }
 
