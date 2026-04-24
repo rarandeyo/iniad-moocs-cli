@@ -44,4 +44,4 @@ tempfile = "3"
 serde_json.workspace = true
 serial_test = "3"
 uuid = { version = "1", features = ["v4"] }
-# rexpect は Step 3 章 5 の PTY テスト着手時に追加
+rexpect = "0.6"          # PTY (cfg(unix) only)

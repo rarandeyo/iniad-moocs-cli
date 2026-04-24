@@ -6,4 +6,6 @@ mod assignment_push;
 mod completion;
 mod doctor_diagnostics;
 mod plumbing;
+#[cfg(target_os = "linux")]
+mod pty_probe;
 mod walking_skeleton;

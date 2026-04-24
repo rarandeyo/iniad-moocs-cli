@@ -1,6 +1,8 @@
 pub mod env;
 pub mod envelope;
 pub mod fixtures;
+#[cfg(unix)]
+pub mod pty;
 pub mod runner;
 pub mod skip;
 
