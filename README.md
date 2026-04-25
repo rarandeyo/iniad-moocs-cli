@@ -1,8 +1,20 @@
 # iniad-moocs-cli (`imoocs`)
 
-ターミナルや AI agent から使うことを想定した [INIAD MOOCs](https://moocs.iniad.org/) の**非公式** CLI。
-コース・レッスン・課題情報・スライド・Drive 配布物の閲覧、取得、整理を支援する。
-`imoocs assignment submit` / `upload` による提出操作もできるが、提出物の内容、提出判断、提出操作、および関連規約の順守は利用者の責任。
+ターミナルや AI agent から使うことを想定した [INIAD MOOCs](https://moocs.iniad.org/) の**非公式** CLI
+
+コース・レッスン・課題情報・スライド・Drive 配布物の閲覧、取得、整理を支援
+
+`imoocs assignment submit` / `upload` による提出操作もできるが、提出物の内容、提出判断、提出操作等すべての責任は利用者にあります
+
+実装の性質上、予告なく動かなくなる可能性があります。利用は自己責任でお願いします
+
+## 主な機能
+
+- **閲覧** — コース・レッスン・課題・スライド・Drive 配布物を CLI で表示
+- **取得** — スライド PDF や Drive ファイルをローカルにダウンロード
+- **提出** — 課題の submit / upload。`confirm` モードなら人間が `push` で最終確定
+- **URL ルーティング** — `imoocs open <url>` で URL を適切なコマンドに振り分け
+- **AI agent 対応** — 全コマンドが JSON envelope + 固定 exit code を返し、agent からも上記すべての操作を実行可能 (agent skill 同梱)
 
 ## Quick start
 
@@ -44,7 +56,9 @@
 
    - **INIAD MOOCs ログイン** — username / password を対話入力
    - **Google SSO セッション取得** — 自動
-   - **提出モード** (`assignment.confirm`) — `confirm` (submit/upload は local stage、確定は TTY で `imoocs assignment push`) / `auto` (submit/upload で即確定) の 2 択。詳細は [Config](#config)
+   - **提出モード** (`assignment.confirm`) — 答案提出 (`submit`) / ファイル提出 (`upload`) の挙動を `confirm` / `auto` から選ぶ (詳細は [Config](#config))
+     - `confirm` — ローカル draft に stage するだけ。サーバ確定は TTY で `imoocs assignment push` を叩いたとき (AI agent の誤操作対策)
+     - `auto` — `submit` / `upload` で即サーバ確定
    - **shell 補完の自動配置** — XDG 標準パスに配置するか確認
 
 3. **Agent skill をインストール** (要 [GitHub CLI (`gh`)](https://github.com/cli/cli))
