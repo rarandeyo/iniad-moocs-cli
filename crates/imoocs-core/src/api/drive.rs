@@ -208,40 +208,76 @@ fn drive_query_literal(value: &str) -> String {
     value.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
-fn build_folder_children_query(folder_id: &str) -> String {
-    format!("'{folder_id}' in parents")
-}
-
 fn build_folder_name_query(name: &str, exact: bool) -> String {
     let escaped = drive_query_literal(name);
     let comparator = if exact { "=" } else { "contains" };
     format!("title {comparator} '{escaped}' and mimeType = 'application/vnd.google-apps.folder'")
 }
 
-pub async fn list_drive_folder(session: &Session, folder_id: &str) -> Result<DriveFolderListing> {
-    list_drive_folder_at(session, folder_id, DRIVE_XHR_ENDPOINT).await
-}
-
-async fn list_drive_folder_at(session: &Session, folder_id: &str, endpoint: &str) -> Result<DriveFolderListing> {
-    validate_drive_id(folder_id)?;
-    if !is_logged_in_google(session).await? {
-        return Err(ImoocsError::Auth {
-            reason: "Google session required for Drive folder listing".into(),
-            hint: Some("run `imoocs auth login-google`".into()),
-        });
-    }
-    let endpoint_url: reqwest::Url = endpoint
-        .parse()
-        .map_err(|e| ImoocsError::Validation(format!("invalid Drive XHR endpoint URL {endpoint:?}: {e}")))?;
-    let auth = build_drive_authorization(session, &endpoint_url)?;
-    let items = fetch_all_pages(&session.client, endpoint, &auth, folder_id).await?;
+/// Phase D-2: `drive.google.com/drive/folders/<id>` を navigate して
+/// grid view の `tr[role="row"][data-id]` から folder/file 一覧を抽出する。
+/// 旧 reqwest 経路 (clients6.google.com/drive/v2beta/files) は削除。
+pub async fn list_drive_folder(_session: &Session, folder_id: &str) -> Result<DriveFolderListing> {
+    validate_drive_id_or_root(folder_id)?;
+    let binary = super::agent_binary()?;
+    let raw_items = imoocs_browser::commands::drive::list_drive_folder(&binary, folder_id)
+        .await
+        .map_err(super::map_browser_err)?;
+    let items: Vec<DriveItem> = raw_items.into_iter().map(convert_browser_item).collect();
     Ok(DriveFolderListing {
         folder_id: folder_id.to_string(),
         items,
-        // envelope 後方互換で残している。XHR pagination で常に全件取得するため実質 dead。
+        // 旧 envelope 互換。DOM scrape では grid view が全件を render するため常に false。
         truncated: false,
         fetched_at: now_rfc3339(),
     })
+}
+
+fn validate_drive_id_or_root(id: &str) -> Result<()> {
+    if id == "root" || id == "my-drive" {
+        return Ok(());
+    }
+    validate_drive_id(id)
+}
+
+fn convert_browser_item(i: imoocs_browser::commands::drive::DriveItem) -> DriveItem {
+    use imoocs_browser::commands::drive::DriveItemKind;
+    let kind = match i.kind {
+        DriveItemKind::Folder => DriveKind::Folder,
+        DriveItemKind::File => DriveKind::File,
+    };
+    DriveItem {
+        id: i.id,
+        name: i.name,
+        mime: infer_mime_from_tooltip(&i.tooltip, kind),
+        kind,
+        // DOM の別セルに表示されているが、現状は省略。Phase D-2.x で必要なら抽出。
+        modified_at: None,
+    }
+}
+
+/// tooltip suffix から MIME を推定 (日本語ロケール依存)。
+/// 一致しないものは `application/octet-stream` に倒す。
+fn infer_mime_from_tooltip(tooltip: &str, kind: DriveKind) -> String {
+    if kind == DriveKind::Folder {
+        return "application/vnd.google-apps.folder".into();
+    }
+    if tooltip.contains("Google スライド") {
+        return "application/vnd.google-apps.presentation".into();
+    }
+    if tooltip.contains("Google ドキュメント") {
+        return "application/vnd.google-apps.document".into();
+    }
+    if tooltip.contains("Google スプレッドシート") {
+        return "application/vnd.google-apps.spreadsheet".into();
+    }
+    if tooltip.contains("Google フォーム") {
+        return "application/vnd.google-apps.form".into();
+    }
+    if tooltip.contains("PDF") {
+        return "application/pdf".into();
+    }
+    "application/octet-stream".into()
 }
 
 pub async fn search_drive_folders(session: &Session, name: &str, exact: bool) -> Result<DriveSearchResult> {
@@ -278,17 +314,6 @@ async fn search_drive_folders_at(
         items,
         fetched_at: now_rfc3339(),
     })
-}
-
-async fn fetch_all_pages(
-    client: &reqwest::Client,
-    endpoint: &str,
-    auth: &str,
-    folder_id: &str,
-) -> Result<Vec<DriveItem>> {
-    let query = build_folder_children_query(folder_id);
-    let what = format!("drive folder {folder_id}");
-    fetch_drive_query_pages(client, endpoint, auth, &query, &what).await
 }
 
 async fn fetch_drive_query_pages(

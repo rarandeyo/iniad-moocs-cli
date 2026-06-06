@@ -154,81 +154,10 @@ fn classify_xhr_error_404_maps_to_not_found() {
     assert!(matches!(err, ImoocsError::NotFound { .. }), "got {err:?}");
 }
 
-/// page2 の mock は `pageToken=FIXTURE_TOKEN_PAGE_2` 限定で matching するので、
-/// loop が token を次 URL に連結できていないと 5 件揃わず test が落ちる。
-#[tokio::test]
-async fn fetch_all_pages_chains_page_tokens() {
-    let mut server = mockito::Server::new_async().await;
-    let page1_mock = server
-        .mock("GET", "/drive/v2beta/files")
-        .match_query(mockito::Matcher::UrlEncoded(
-            "q".into(),
-            "'FIXTURE_FOLDER' in parents".into(),
-        ))
-        .with_status(200)
-        .with_header("content-type", "application/json; charset=UTF-8")
-        .with_body(XHR_PAGE1_FIXTURE)
-        .expect(1)
-        .create_async()
-        .await;
-    let page2_mock = server
-        .mock("GET", "/drive/v2beta/files")
-        .match_query(mockito::Matcher::UrlEncoded(
-            "pageToken".into(),
-            "FIXTURE_TOKEN_PAGE_2".into(),
-        ))
-        .with_status(200)
-        .with_header("content-type", "application/json; charset=UTF-8")
-        .with_body(XHR_PAGE2_FIXTURE)
-        .expect(1)
-        .create_async()
-        .await;
-
-    let endpoint = format!("{}/drive/v2beta/files", server.url());
-    let client = reqwest::Client::new();
-    let items = fetch_all_pages(&client, &endpoint, "SAPISIDHASH fake", "FIXTURE_FOLDER")
-        .await
-        .expect("fetch_all_pages should succeed");
-
-    assert_eq!(items.len(), 5);
-    assert_eq!(items[0].name, "AI-01");
-    assert_eq!(items[3].name, "notes.txt");
-    assert_eq!(items[4].name, "sub-folder");
-
-    page1_mock.assert_async().await;
-    page2_mock.assert_async().await;
-}
-
-/// HTTP 403 + Google "unregistered callers" body が Api error として surfacing される
-/// (auth 切れと混同しない)。
-#[tokio::test]
-async fn fetch_all_pages_surfaces_api_key_regression() {
-    let mut server = mockito::Server::new_async().await;
-    let body = r#"{"error":{"code":403,"message":"Method doesn't allow unregistered callers (callers without established identity). Please use API Key or other form of API consumer identity to call this API."}}"#;
-    let m = server
-        .mock("GET", "/drive/v2beta/files")
-        .match_query(mockito::Matcher::UrlEncoded(
-            "q".into(),
-            "'FIXTURE_FOLDER' in parents".into(),
-        ))
-        .with_status(403)
-        .with_header("content-type", "application/json; charset=UTF-8")
-        .with_body(body)
-        .expect(1)
-        .create_async()
-        .await;
-
-    let endpoint = format!("{}/drive/v2beta/files", server.url());
-    let client = reqwest::Client::new();
-    let err = fetch_all_pages(&client, &endpoint, "SAPISIDHASH fake", "FIXTURE_FOLDER")
-        .await
-        .unwrap_err();
-    match err {
-        ImoocsError::Api(s) => assert!(s.contains("rejected our API key"), "got {s:?}"),
-        other => panic!("expected Api error, got {other:?}"),
-    }
-    m.assert_async().await;
-}
+// Phase D-2: `fetch_all_pages` (= folder children query を渡す wrapper) は削除。
+// list_drive_folder は agent-browser DOM scrape 経路に置換済み。
+// page-token chaining と 403 handling のカバレッジは `fetch_drive_query_pages_uses_arbitrary_query`
+// 含む下流の test で維持する (= 同じ `fetch_drive_query_pages` を search 経由で叩く)。
 
 #[tokio::test]
 async fn fetch_drive_query_pages_uses_arbitrary_query() {
