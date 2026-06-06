@@ -82,7 +82,16 @@ fn failure_envelope_is_a_single_json_object() {
     let xdg = TempXdg::new();
     let assert = imoocs_in(&xdg)
         .env("IMOOCS_YEAR", "2026")
-        .args(["assignment", "submit", "CS101", "prob-a", "--data", "{}"])
+        .args([
+            "assignment",
+            "submit",
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
+            "prob-a",
+            "--data",
+            "{}",
+        ])
         .assert()
         .code(3);
     let view = assert_failure_envelope(&assert.get_output().stdout);
@@ -115,7 +124,16 @@ fn failure_envelope_has_no_data_key() {
     let xdg = TempXdg::new();
     let assert = imoocs_in(&xdg)
         .env("IMOOCS_YEAR", "2026")
-        .args(["assignment", "submit", "CS101", "prob-a", "--data", "{}"])
+        .args([
+            "assignment",
+            "submit",
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
+            "prob-a",
+            "--data",
+            "{}",
+        ])
         .assert()
         .code(3);
     let envelope: Value = serde_json::from_slice(&assert.get_output().stdout).expect("envelope is JSON");

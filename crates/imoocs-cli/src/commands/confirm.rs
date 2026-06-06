@@ -33,26 +33,44 @@ pub struct PushAction<'a> {
 
 impl PushAction<'_> {
     fn prompt_text(&self) -> String {
-        let answers_part = if self.answer_pids.is_empty() {
-            "no answers".to_string()
-        } else {
-            format!("answers=[{}]", self.answer_pids.join(", "))
+        // 表示崩れ (TTY overwrite 失敗) を避けるため、1 行に収まる長さに抑える。
+        // 詳細 (file 名・pid 一覧) は別途 stderr に事前出力するので、prompt 本体は
+        // 「対象 + 何が送られるかの要約」だけ。
+        let summary = match (self.answer_pids.is_empty(), self.file_pids.is_empty()) {
+            (true, true) => "empty".to_string(),
+            (false, true) => format!("answers={}", self.answer_pids.len()),
+            (true, false) => format!("files={}", self.file_pids.len()),
+            (false, false) => format!(
+                "answers={} files={}",
+                self.answer_pids.len(),
+                self.file_pids.len()
+            ),
         };
-        let files_part = if self.file_pids.is_empty() {
-            "no files".to_string()
+        format!(
+            "Push {course}/{problem}? [{summary}]",
+            course = self.course,
+            problem = self.problem,
+        )
+    }
+
+    /// 確認 prompt の前に stderr に出す詳細サマリ (pid 一覧など)。
+    pub fn detail_text(&self) -> String {
+        let answers = if self.answer_pids.is_empty() {
+            "  answers: -".to_string()
+        } else {
+            format!("  answers: {}", self.answer_pids.join(", "))
+        };
+        let files = if self.file_pids.is_empty() {
+            "  files:   -".to_string()
         } else {
             let pids: Vec<String> = self
                 .file_pids
                 .iter()
-                .map(|(pid, name)| format!("{pid}:{name}"))
+                .map(|(pid, name)| format!("{pid}={name}"))
                 .collect();
-            format!("files=[{}]", pids.join(", "))
+            format!("  files:   {}", pids.join(", "))
         };
-        format!(
-            "Push staged draft to {course}/{problem}? ({answers_part}, {files_part}) This confirms the submission.",
-            course = self.course,
-            problem = self.problem,
-        )
+        format!("Push target: {course}/{problem}\n{answers}\n{files}", course = self.course, problem = self.problem)
     }
 }
 
@@ -102,6 +120,10 @@ pub fn resolve_push_gate(cfg: &Config, action: &PushAction) -> Result<bool, Imoo
     let mode = cfg.assignment.as_ref().and_then(|a| a.confirm);
     let is_tty = std::io::stdin().is_terminal();
     decide_push_precheck(mode, is_tty)?;
+
+    // 詳細サマリ (pid 一覧) は prompt とは別に stderr に出す。
+    // こうすると Confirm の prompt 自体を短くできて TTY overwrite が崩れない。
+    eprintln!("{}", action.detail_text());
 
     let ans = Confirm::with_theme(&ColorfulTheme::default())
         .with_prompt(action.prompt_text())
@@ -185,10 +207,16 @@ mod tests {
             answer_pids: &answer_pids,
             file_pids: &file_pids,
         };
-        let text = action.prompt_text();
-        assert!(text.contains("CS101/prob-a"));
-        assert!(text.contains("p1"));
-        assert!(text.contains("p2"));
-        assert!(text.contains("html:report.html"));
+        // Phase C-11 で prompt は短縮: 識別子 + answers/files count だけ。
+        let prompt = action.prompt_text();
+        assert!(prompt.contains("CS101/prob-a"), "prompt should contain target: {prompt}");
+        assert!(prompt.contains("answers=2"), "prompt should contain answers count: {prompt}");
+        assert!(prompt.contains("files=1"), "prompt should contain files count: {prompt}");
+        // 詳細 (pid 一覧 + ファイル名) は detail_text で stderr に出す。
+        let detail = action.detail_text();
+        assert!(detail.contains("CS101/prob-a"));
+        assert!(detail.contains("p1"));
+        assert!(detail.contains("p2"));
+        assert!(detail.contains("html=report.html"));
     }
 }

@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/imoocs-core", "crates/imoocs-cli"]
+members = [
+    "crates/imoocs-types",
+    "crates/imoocs-browser",
+    "crates/imoocs-core",
+    "crates/imoocs-cli",
+]
 
 [workspace.package]
 version = "0.2.0"
@@ -25,6 +30,7 @@ serde_with = "3"
 schemars = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 dialoguer = "0.11"
+indicatif = "0.18"
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 clap_complete = "4"
 clap_mangen = "0.2"

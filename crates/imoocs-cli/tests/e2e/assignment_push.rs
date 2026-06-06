@@ -27,7 +27,9 @@ fn push_in_non_tty_mode_with_staged_draft_exits_3_and_keeps_draft() {
             "json",
             "assignment",
             "submit",
-            "CS101",
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
             "prob-a",
             "--data",
             r#"{"p1":"hello"}"#,
@@ -47,10 +49,10 @@ fn push_in_non_tty_mode_with_staged_draft_exits_3_and_keeps_draft() {
     };
     assert_eq!(count_drafts(), 1, "stage should produce exactly 1 draft");
 
-    // push を非 TTY で叩く → TTY エラー (commands/confirm.rs:82-87 由来)
+    // push を非 TTY で叩く (引数なしで全 draft 対象) → TTY エラー
     let assert = imoocs_in(&xdg)
         .env("IMOOCS_YEAR", "2026")
-        .args(["assignment", "push", "CS101", "prob-a"])
+        .args(["assignment", "push"])
         .assert()
         .code(3);
     let view = assert_failure_envelope(&assert.get_output().stdout);
@@ -75,9 +77,10 @@ fn push_in_pty_with_no_staged_draft_exits_4_not_found() {
     let xdg = TempXdg::new();
     xdg.write_config(CONFIG_CONFIRM);
 
+    // Phase C-10: push は引数なしで全 draft 一括送信。draft 0 件なら NOT_FOUND。
     let session = imoocs_pty_in_with_env(
         &xdg,
-        &["assignment", "push", "CS101", "prob-a"],
+        &["assignment", "push"],
         &[("IMOOCS_YEAR", "2026")],
         5_000,
     )
@@ -107,7 +110,9 @@ fn push_in_pty_with_n_response_cancels_and_keeps_draft() {
             "json",
             "assignment",
             "submit",
-            "CS101",
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
             "prob-a",
             "--data",
             r#"{"p1":"hello"}"#,
@@ -127,18 +132,18 @@ fn push_in_pty_with_n_response_cancels_and_keeps_draft() {
     };
     assert_eq!(count_drafts(), 1, "stage should produce 1 draft");
 
-    // PTY で push 起動 → "Push staged" プロンプトを expect → "n" 送信
+    // PTY で push 起動 (引数なし) → "Push CS101/prob-a?" プロンプトを expect → "n" 送信
     let mut session = imoocs_pty_in_with_env(
         &xdg,
-        &["assignment", "push", "CS101", "prob-a"],
+        &["assignment", "push"],
         &[("IMOOCS_YEAR", "2026")],
         5_000,
     )
     .expect("spawn pty");
 
-    // dialoguer ColorfulTheme は `Push staged draft to CS101/prob-a? ... [y/N]`
-    // 形のプロンプトを吐く。ANSI escape が混じる可能性があるので regex で。
-    session.exp_regex(r"Push staged.*\?").expect("see push prompt");
+    // Phase C-11: prompt は短縮されて `Push CS101/prob-a? [answers=1]` 形式。
+    // ANSI escape が混じる可能性があるので regex で。
+    session.exp_regex(r"Push CS101/prob-a\?").expect("see push prompt");
     session.send_line("n").expect("send n");
 
     let status = session.process.wait().expect("wait child");

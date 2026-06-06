@@ -2,9 +2,8 @@
 
 use std::collections::HashMap;
 
-use reqwest::{header, Method};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::debug;
 
 use crate::error::{ImoocsError, Result};
@@ -70,29 +69,43 @@ pub async fn get_answers(session: &Session, key: &AssignmentKey) -> Result<HashM
     Ok(out)
 }
 
+/// `data-urlprefix` 属性の値 (= `/assignments/<year>/<courseId>/<problemId>`)。
+fn data_urlprefix(key: &AssignmentKey) -> String {
+    format!("/assignments/{}/{}/{}", key.year, key.course_id, key.problem_id)
+}
+
+/// Phase C: 課題ページに navigate して textarea を fill、`button.submit-answer` を click。
+///
+/// `page_url`: 課題が載っている lesson page の URL (例 `.../courses/2026/INI301/AI-s01/09`)。
+/// `data` の値は agent-browser navigate で扱うため文字列化する (`String` → そのまま、
+/// `Number`/`Bool` → `to_string()`、`Array`/`Object`/`Null` → 現状は textarea 想定外なので
+/// `Validation` エラー)。
 pub async fn put_answers(
     session: &Session,
     key: &AssignmentKey,
+    page_url: &str,
     data: HashMap<String, Value>,
     force: bool,
 ) -> Result<AnswerResult> {
-    let mut body = json!({ "data": data });
-    if force {
-        body["force"] = Value::Bool(true);
-    }
-    let csrf = ensure_csrf(session).await?;
-    let resp = session
-        .client
-        .request(Method::PUT, format!("{}/answers", prefix(key)))
-        .header(header::CONTENT_TYPE, "application/json;charset=UTF-8")
-        .header("X-CSRF-Token", csrf)
-        .body(serde_json::to_vec(&body)?)
-        .send()
-        .await?;
-    let status_code = resp.status();
-    if !status_code.is_success() {
-        return Err(map_http_err(status_code, resp.text().await.ok()));
-    }
+    let answers = data
+        .into_iter()
+        .map(|(k, v)| match v {
+            Value::String(s) => Ok((k, s)),
+            Value::Bool(b) => Ok((k, b.to_string())),
+            Value::Number(n) => Ok((k, n.to_string())),
+            Value::Null => Ok((k, String::new())),
+            other => Err(ImoocsError::Validation(format!(
+                "pid `{k}` の値 {other} は textarea/text 答案にできません (Phase C 初版は配列/object 未対応)"
+            ))),
+        })
+        .collect::<Result<HashMap<String, String>>>()?;
+
+    let binary = crate::api::agent_binary()?;
+    let urlprefix = data_urlprefix(key);
+    imoocs_browser::commands::assignment_write::submit_answer(&binary, page_url, &urlprefix, &answers)
+        .await
+        .map_err(crate::api::map_browser_err)?;
+
     let stat = get_status(session, key).await?;
     Ok(AnswerResult {
         ok: true,
@@ -104,51 +117,22 @@ pub async fn put_answers(
     })
 }
 
+/// Phase C: 課題ページに navigate してファイルを `<input type=file name=<pid>>` に
+/// upload、`button.submit-answer` を click。`force` は agent-browser flow では使わない
+/// (ブラウザの確認 dialog は内部 JS が auto-accept する想定。Phase C-6 で観察)。
 pub async fn post_file(
-    session: &Session,
+    _session: &Session,
     key: &AssignmentKey,
+    page_url: &str,
     pid: &str,
     path: &std::path::Path,
-    force: bool,
+    _force: bool,
 ) -> Result<()> {
-    let csrf = ensure_csrf(session).await?;
-    let file_bytes = tokio::fs::read(path).await?;
-    let filename = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("upload.bin")
-        .to_string();
-
-    // MOOCs の browser render は `file.filetype` が set されていないと
-    // 「未提出」と表示する (application.js の render_file)。Content-Type を
-    // 拡張子から推定して Part にセットすると、server 側が `filetype` を
-    // 記録してくれる。推定できなければ `application/octet-stream`。
-    let mime = mime_guess::from_path(path)
-        .first_or_octet_stream()
-        .essence_str()
-        .to_string();
-    let part = reqwest::multipart::Part::bytes(file_bytes)
-        .file_name(filename)
-        .mime_str(&mime)
-        .map_err(|e| ImoocsError::Internal(format!("invalid mime {mime}: {e}")))?;
-
-    let mut form = reqwest::multipart::Form::new().part("file", part);
-    if force {
-        form = form.text("force", "true");
-    }
-
-    let resp = session
-        .client
-        .post(format!("{}/file/{}", prefix(key), pid))
-        .header("X-CSRF-Token", csrf)
-        .multipart(form)
-        .send()
-        .await?;
-    let status_code = resp.status();
-    if !status_code.is_success() {
-        return Err(map_http_err(status_code, resp.text().await.ok()));
-    }
-    let _ = resp.bytes().await?;
+    let binary = crate::api::agent_binary()?;
+    let urlprefix = data_urlprefix(key);
+    imoocs_browser::commands::assignment_write::upload_file(&binary, page_url, &urlprefix, pid, path)
+        .await
+        .map_err(crate::api::map_browser_err)?;
     Ok(())
 }
 
@@ -218,34 +202,10 @@ pub async fn get_assignment_detail(session: &Session, key: &AssignmentKey, lang:
     })
 }
 
-async fn ensure_csrf(session: &Session) -> Result<String> {
-    if let Some(t) = session.csrf_token().await {
-        return Ok(t);
-    }
-    refresh_csrf(session).await
-}
-
-async fn refresh_csrf(session: &Session) -> Result<String> {
-    let body = session
-        .client
-        .get(moocs_url("/account"))
-        .send()
-        .await?
-        .error_for_status()?
-        .text()
-        .await?;
-    let doc = scraper::Html::parse_document(&body);
-    let sel = crate::util::html::parse_selector(r#"meta[name="csrf-token"]"#)?;
-    let content = doc
-        .select(&sel)
-        .next()
-        .and_then(|el| el.value().attr("content"))
-        .ok_or_else(|| ImoocsError::Parse("csrf-token meta not found on /account".into()))?
-        .to_string();
-    session.set_csrf_token(Some(content.clone())).await;
-    debug!("refreshed CSRF token ({} chars)", content.len());
-    Ok(content)
-}
+// Phase C で write 系を agent-browser navigate に置き換えたため、CSRF token は
+// 不要になった (MOOCs JS が `meta[name=csrf-token]` を自動付与する)。
+// もし将来 reqwest write を復活させるなら HEAD コミットの `ensure_csrf` /
+// `refresh_csrf` を参照する。
 
 /// request を送り、check 済みの response を返す。HTTP 4xx/5xx は生の
 /// reqwest エラーではなくドメインエラー (Auth / NotFound / Api / Network) に
@@ -291,27 +251,6 @@ fn map_http_err_with_context(status: reqwest::StatusCode, body: Option<String>, 
     }
 }
 
-fn map_http_err(status: reqwest::StatusCode, body: Option<String>) -> ImoocsError {
-    use reqwest::StatusCode;
-    let msg = body
-        .and_then(|b| if b.len() > 500 { None } else { Some(b) })
-        .unwrap_or_default();
-    match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FOUND => ImoocsError::Auth {
-            reason: format!("HTTP {status}"),
-            hint: Some("run `imoocs auth login`".into()),
-        },
-        StatusCode::FORBIDDEN => ImoocsError::NonPublic {
-            endpoint: "assignment".into(),
-        },
-        StatusCode::SERVICE_UNAVAILABLE => ImoocsError::Api(format!("service unavailable (503): {msg}")),
-        StatusCode::NOT_FOUND => ImoocsError::NotFound {
-            what: format!("assignment endpoint returned 404: {msg}"),
-        },
-        _ => ImoocsError::Api(format!("HTTP {status}: {msg}")),
-    }
-}
-
 #[derive(Deserialize)]
 struct StatusRaw {
     status: String,
@@ -352,15 +291,6 @@ mod tests {
         let err = map_http_err_with_context(StatusCode::FORBIDDEN, None, "/problem");
         match err {
             ImoocsError::NonPublic { endpoint } => assert_eq!(endpoint, "/problem"),
-            other => panic!("expected NonPublic, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn forbidden_without_context_maps_to_non_public() {
-        let err = map_http_err(StatusCode::FORBIDDEN, None);
-        match err {
-            ImoocsError::NonPublic { endpoint } => assert_eq!(endpoint, "assignment"),
             other => panic!("expected NonPublic, got {other:?}"),
         }
     }

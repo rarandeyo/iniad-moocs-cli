@@ -1,0 +1,20 @@
+[package]
+name = "imoocs-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Shared neutral types for imoocs (Credentials, Lang, etc.) — no HTTP or scraper deps"
+
+[lints.rust]
+missing_debug_implementations = "deny"
+
+[dependencies]
+secrecy = "0.10"
+serde.workspace = true
+zeroize = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json.workspace = true

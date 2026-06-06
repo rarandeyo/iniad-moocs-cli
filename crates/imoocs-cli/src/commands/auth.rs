@@ -115,6 +115,10 @@ pub async fn do_login(
             cfg.username = Some(username.clone());
             cfg.save(&paths.config_file())?;
             info!("authenticated as {}", username);
+            // Phase C: write 系 (submit/upload/push) は agent-browser daemon を経由する。
+            // server 側が reqwest と Chrome の session を別物として扱うため、両方で
+            // 独立に login しておく。失敗しても read 系は動くので warning に留める。
+            establish_agent_browser_session(&username, &creds.password);
             Ok(LoginOutcome { username })
         }
         Err(err @ ImoocsError::Auth { .. }) => {
@@ -123,6 +127,39 @@ pub async fn do_login(
             Err(err)
         }
         Err(err) => Err(err),
+    }
+}
+
+/// agent-browser daemon Chrome に MOOCs session を確立する。失敗しても reqwest 経由の
+/// read 系は動くので、ここでは warning のみ表示して `Ok` 同等に処理する。
+fn establish_agent_browser_session(username: &str, password: &str) {
+    let Some(binary) = imoocs_browser::discover_binary() else {
+        eprintln!(
+            "warning: agent-browser binary not found; `submit` / `upload` / `push` (write 系) は利用できません。\n  install: `cargo install agent-browser --locked` または `npm i -g agent-browser`"
+        );
+        return;
+    };
+    let creds = imoocs_types::Credentials::new(username.to_string(), password.to_string());
+    let rt = tokio::runtime::Handle::try_current();
+    // 既に async コンテキストにいる前提で block_in_place で同期化する。
+    let result = match rt {
+        Ok(handle) => tokio::task::block_in_place(|| {
+            handle.block_on(imoocs_browser::commands::auth_moocs::login_moocs(
+                &binary, &creds,
+            ))
+        }),
+        Err(_) => {
+            // ランタイムが無い場合 (テスト等) は新規 runtime を作って実行
+            let Ok(rt) = tokio::runtime::Runtime::new() else { return };
+            rt.block_on(imoocs_browser::commands::auth_moocs::login_moocs(&binary, &creds))
+        }
+    };
+    if let Err(e) = result {
+        eprintln!(
+            "warning: agent-browser MOOCs login failed ({e}); write 系 (submit/upload/push) は利用できません。\n  再試行: `imoocs auth login`"
+        );
+    } else {
+        info!("agent-browser daemon MOOCs session established");
     }
 }
 

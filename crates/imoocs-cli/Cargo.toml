@@ -21,6 +21,8 @@ path = "tests/e2e/main.rs"
 
 [dependencies]
 imoocs-core = { path = "../imoocs-core" }
+imoocs-browser = { path = "../imoocs-browser" }
+imoocs-types = { path = "../imoocs-types" }
 anyhow.workspace = true
 tokio.workspace = true
 serde.workspace = true
@@ -30,6 +32,7 @@ clap.workspace = true
 clap_complete.workspace = true
 clap_mangen.workspace = true
 dialoguer.workspace = true
+indicatif.workspace = true
 etcetera.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

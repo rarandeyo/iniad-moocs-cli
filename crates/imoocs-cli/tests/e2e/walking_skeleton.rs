@@ -54,6 +54,7 @@ fn submit_in_confirm_mode_stages_draft_to_xdg_state_home() {
     let pid = "p1";
     let value = "hello-walking-skeleton";
     let data = format!(r#"{{"{pid}":"{value}"}}"#);
+    let _ = course; // signature uses URL + problem-id; course is encoded in URL.
 
     let assert = imoocs_in(&xdg)
         // --year を明示しないと resolve_key が resolve_latest_year で
@@ -64,7 +65,9 @@ fn submit_in_confirm_mode_stages_draft_to_xdg_state_home() {
             "json",
             "assignment",
             "submit",
-            course,
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
             problem,
             "--data",
             &data,
