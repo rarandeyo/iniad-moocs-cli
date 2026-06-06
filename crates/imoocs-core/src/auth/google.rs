@@ -1,134 +1,36 @@
-//! Google Workspace SAML login via the INIAD SSO.
+//! Google Workspace SSO (SAML 経由) login — agent-browser daemon に委譲する。
 //!
-//! Adapted from moocs-collect `src/repository/auth.rs:101-185` (MIT, Copyright 2024
-//! Yuki Natori) with the unchecked `.unwrap()` calls replaced by `?` that produce
-//! typed errors, so we get clean structured exit codes instead of panics.
-
-use once_cell::sync::Lazy;
-use regex::Regex;
-use scraper::Html;
-use tracing::{debug, info};
+//! Phase D-1: 旧 reqwest SAML 6段 chain は削除。Chrome daemon が同じ
+//! `--session-name imoocs` を共有しているので、MOOCs 側 Keycloak セッションが
+//! 確立済みなら SAML chain が auto-submit form で自動進行し、speedbump
+//! (本人確認ダイアログ) は browser 側で自動 click される。
+//!
+//! `Session` / `Credentials` の引数は caller 互換のために残しているが、
+//! 実体は使用しない。daemon が auth-vault の MOOCs 資格情報を直接使う。
 
 use crate::auth::moocs::Credentials;
-use crate::error::{ImoocsError, Result};
+use crate::error::Result;
 use crate::session::Session;
-use crate::util::html::extract_element_attribute;
 
-const SAML_REDIRECT_URL: &str = "https://accounts.google.com/samlredirect?domain=iniad.org";
-const INVALID_CREDS_MARKER: &str = "Invalid username or password.";
-
-static ANCHOR_HREF_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r#"<a\s+(?:[^>]*?\s+)?href="([^"]*)""#).unwrap());
-static META_REFRESH_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"<meta\s+http-equiv="refresh"\s+content=".*?\s+url=(.*?)">"#).unwrap());
-
-pub async fn login_google(session: &Session, creds: &Credentials) -> Result<()> {
-    let body = session.client.get(SAML_REDIRECT_URL).send().await?.text().await?;
-
-    let mut document = Html::parse_document(&body);
-    let initial_action = extract_element_attribute(&document.root_element(), "form.form-signin", "action");
-    if let Ok(action) = initial_action {
-        debug!("submitting Keycloak credentials for Google SAML");
-        let post = session
-            .client
-            .post(&action)
-            .form(&[
-                ("username", creds.username.as_str()),
-                ("password", creds.password.as_str()),
-            ])
-            .send()
-            .await?;
-        let post_body = post.text().await?;
-        if post_body.contains(INVALID_CREDS_MARKER) {
-            return Err(ImoocsError::Auth {
-                reason: "invalid username or password (SAML)".into(),
-                hint: Some("re-run `imoocs auth login` to update stored credentials".into()),
-            });
-        }
-        document = Html::parse_document(&post_body);
-        // ここで saml-post-binding form が見つからないと flow が破綻する
-        extract_element_attribute(&document.root_element(), "form[name='saml-post-binding']", "action").map_err(
-            |e| ImoocsError::Auth {
-                reason: format!("unexpected SAML response after Keycloak login: {e}"),
-                hint: Some("INIAD SSO or Google SAML flow may have changed; file an issue".into()),
-            },
-        )?;
-    }
-
-    let (action, saml_response, relay_state) = {
-        let root = document.root_element();
-        (
-            extract_element_attribute(&root, "form[name='saml-post-binding']", "action")?,
-            extract_element_attribute(&root, "input[name='SAMLResponse']", "value")?,
-            extract_element_attribute(&root, "input[name='RelayState']", "value")?,
-        )
-    };
-    debug!(%action, "posting SAMLResponse to {}", action);
-    let resp = session
-        .client
-        .post(&action)
-        .form(&[
-            ("SAMLResponse", saml_response.as_str()),
-            ("RelayState", relay_state.as_str()),
-        ])
-        .send()
-        .await?;
-    let body = resp.text().await?;
-
-    let document = Html::parse_document(&body);
-    let (action, relay_state, saml_response, trampoline) = {
-        let root = document.root_element();
-        (
-            extract_element_attribute(&root, "form[name='hiddenpost']", "action")?,
-            extract_element_attribute(&root, "input[name='RelayState']", "value")?,
-            extract_element_attribute(&root, "input[name='SAMLResponse']", "value")?,
-            extract_element_attribute(&root, "input[name='trampoline']", "value")?,
-        )
-    };
-    let resp = session
-        .client
-        .post(&action)
-        .form(&[
-            ("RelayState", relay_state.as_str()),
-            ("SAMLResponse", saml_response.as_str()),
-            ("trampoline", trampoline.as_str()),
-        ])
-        .send()
-        .await?;
-    let body = resp.text().await?;
-
-    let href = ANCHOR_HREF_RE
-        .captures(&body)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .ok_or_else(|| ImoocsError::Parse("SAML step 5: could not locate <a href>".into()))?;
-    let body = session
-        .client
-        .get(href.replace("&amp;", "&"))
-        .send()
-        .await?
-        .text()
-        .await?;
-
-    let url = META_REFRESH_RE
-        .captures(&body)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_string())
-        .ok_or_else(|| ImoocsError::Parse("SAML step 6: could not locate meta refresh".into()))?;
-    session.client.get(url.replace("&amp;", "&")).send().await?;
-
-    if is_logged_in_google(session).await? {
-        session.save_cookies()?;
-        info!("Google SAML login successful");
-        Ok(())
-    } else {
-        Err(ImoocsError::Auth {
-            reason: "Google session check failed after SAML flow".into(),
-            hint: Some("Google MFA may be enabled; resolve in a browser and retry".into()),
-        })
-    }
+pub async fn login_google(_session: &Session, _creds: &Credentials) -> Result<()> {
+    let binary = crate::api::agent_binary()?;
+    imoocs_browser::commands::auth_google::login_google(&binary)
+        .await
+        .map_err(crate::api::map_browser_err)
 }
 
-pub async fn is_logged_in_google(session: &Session) -> Result<bool> {
-    let resp = session.client.get("https://myaccount.google.com").send().await?;
-    Ok(resp.url().domain() == Some("myaccount.google.com"))
+/// Google にログイン済みなら `Ok(true)`。binary 不在 / ネットワーク失敗 / daemon エラーは
+/// すべて `Ok(false)` 扱いにする (doctor / status が clean な状態でも success envelope を
+/// 出せるようにするため。Err はあくまで「想定外」のとき)。
+pub async fn is_logged_in_google(_session: &Session) -> Result<bool> {
+    let Ok(binary) = crate::api::agent_binary() else {
+        return Ok(false);
+    };
+    match imoocs_browser::commands::auth_google::is_logged_in_google(&binary).await {
+        Ok(b) => Ok(b),
+        Err(e) => {
+            tracing::warn!(error = ?e, "is_logged_in_google: browser check failed, treating as not-logged-in");
+            Ok(false)
+        }
+    }
 }
