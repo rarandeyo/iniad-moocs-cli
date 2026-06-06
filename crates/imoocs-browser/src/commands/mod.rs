@@ -6,3 +6,4 @@ pub mod auth_google;
 pub mod auth_moocs;
 pub mod drive;
 pub mod navigation;
+pub mod slides;
