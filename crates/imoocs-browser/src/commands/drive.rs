@@ -1,11 +1,18 @@
-//! Google Drive folder listing via agent-browser DOM scrape (Phase D-2).
+//! Google Drive folder listing / search / file fetch via agent-browser (Phase D-2).
 //!
 //! 旧 `clients6.google.com/drive/v2beta/files` の reqwest 経路は SAPISIDHASH
 //! 認証が 401 になりやすく、Drive Web UI 自体も batchexecute (GWT RPC) に
-//! 移行している。代わりに `drive.google.com/drive/folders/<id>` を navigate
-//! して grid view の `<tr role="row" data-id="...">` 行から folder/file 一覧を抽出する。
+//! 移行している。代わりに以下の経路に置換した:
+//!
+//! - **list** (`drive.google.com/drive/folders/<id>`): grid view の
+//!   `<tr role="row" data-id="...">` 行から folder/file 一覧を抽出。
+//! - **search** (`drive.google.com/drive/search?q=<query>`): 同じ grid 構造を
+//!   流用 (folder 限定のフィルタは caller 側で `kind == Folder` で絞る)。
+//! - **fetch** (`drive.usercontent.google.com/download?id=<id>&export=download&confirm=t`):
+//!   `open` で navigate → `wait --download <dest>` で完了を待ち、destination
+//!   に保存する。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -79,11 +86,66 @@ pub async fn list_drive_folder(binary: &Path, folder_id: &str) -> Result<Vec<Dri
     } else {
         format!("https://drive.google.com/drive/folders/{folder_id}")
     };
+    navigate_and_extract(binary, &url, "list_drive_folder").await
+}
 
+/// `https://drive.google.com/drive/search?q=<query>` を navigate して結果を抽出。
+/// folder のみのフィルタは caller 側で `kind == Folder` で絞る。
+pub async fn search_drive(binary: &Path, query: &str) -> Result<Vec<DriveItem>, BrowserError> {
+    let encoded = percent_encode(query);
+    let url = format!("https://drive.google.com/drive/search?q={encoded}");
+    navigate_and_extract(binary, &url, "search_drive").await
+}
+
+/// Drive ファイルを `drive.usercontent.google.com/download` 経由でダウンロードして
+/// `dest` に保存する。`confirm=t` を仕込んでいるので 25MB 超ファイルの virus-scan
+/// interstitial も回避できる。
+///
+/// agent-browser daemon の挙動:
+/// - `open <download URL>` で navigate するとブラウザは「ダウンロード」イベントを発火
+/// - `wait --download <path>` でダウンロード完了を待ち、ファイルを `path` にコピー
+///
+/// 戻り値は実際に保存された path (dest と同じ)。
+pub async fn fetch_drive_file(binary: &Path, file_id: &str, dest: &Path) -> Result<PathBuf, BrowserError> {
+    let url = format!(
+        "https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
+    );
+    let dest_str = dest.to_string_lossy().into_owned();
+    let agent = AgentBrowser::new(binary.to_path_buf(), SESSION_NAME);
+    let mut builder = BatchBuilder::new();
+    // Chrome は navigation がダウンロードに変換されると `open` が
+    // net::ERR_ABORTED を返す。実際にはダウンロードは開始されているので、
+    // open の失敗は無視して wait --download の成否だけで判定する。
+    builder.open(&url).push([
+        "wait".to_string(),
+        "--download".to_string(),
+        dest_str.clone(),
+        "--timeout".to_string(),
+        "120000".to_string(),
+    ]);
+    let json = builder.to_json().map_err(BrowserError::from)?;
+    let value: Value = agent.run_raw(&["batch"], Some(json.as_bytes())).await?;
+    let outcomes: BatchResponse = serde_json::from_value(value)?;
+
+    let wait_outcome = outcomes
+        .get(1)
+        .ok_or_else(|| BrowserError::Internal("fetch_drive_file: missing wait outcome".into()))?;
+    if !wait_outcome.success {
+        return Err(BrowserError::CommandFailed(format!(
+            "fetch_drive_file: wait --download failed: {}",
+            wait_outcome.error.as_deref().unwrap_or("unknown")
+        )));
+    }
+    Ok(dest.to_path_buf())
+}
+
+/// list/search 共通: navigate → wait_fn(READY_JS) → eval(EXTRACT_JS) → get_url
+/// → extracted JSON を Vec<DriveItem> に変換。
+async fn navigate_and_extract(binary: &Path, url: &str, what: &str) -> Result<Vec<DriveItem>, BrowserError> {
     let agent = AgentBrowser::new(binary.to_path_buf(), SESSION_NAME);
     let mut builder = BatchBuilder::new();
     builder
-        .open(&url)
+        .open(url)
         .wait_load(LoadKind::DomContentLoaded)
         .wait_fn(READY_JS, 30_000)
         .eval(EXTRACT_JS)
@@ -94,13 +156,12 @@ pub async fn list_drive_folder(binary: &Path, folder_id: &str) -> Result<Vec<Dri
 
     if let Some(failed) = outcomes.iter().find(|o| !o.success) {
         return Err(BrowserError::CommandFailed(format!(
-            "list_drive_folder: step {:?} failed: {}",
+            "{what}: step {:?} failed: {}",
             failed.command,
             failed.error.as_deref().unwrap_or("unknown")
         )));
     }
 
-    // get_url (最後) で sign-in リダイレクト検知
     let final_url = outcomes
         .last()
         .and_then(|o| o.result.as_ref())
@@ -108,20 +169,19 @@ pub async fn list_drive_folder(binary: &Path, folder_id: &str) -> Result<Vec<Dri
         .and_then(Value::as_str)
         .unwrap_or_default();
     if final_url.contains("accounts.google.com") {
-        return Err(BrowserError::CommandFailed(
-            "Drive folder navigation redirected to Google sign-in; session expired".into(),
-        ));
+        return Err(BrowserError::CommandFailed(format!(
+            "{what}: navigation redirected to Google sign-in; session expired"
+        )));
     }
 
-    // eval (index=3) の result.result が `JSON.stringify` した文字列
     let extracted = outcomes
         .get(3)
         .and_then(|o| o.result.as_ref())
         .and_then(|v| v.get("result"))
         .and_then(Value::as_str)
-        .ok_or_else(|| BrowserError::Internal("list_drive_folder: missing eval result".into()))?;
+        .ok_or_else(|| BrowserError::Internal(format!("{what}: missing eval result")))?;
     let raw: Vec<RawItem> = serde_json::from_str(extracted)
-        .map_err(|e| BrowserError::Internal(format!("list_drive_folder: parse extracted JSON: {e}")))?;
+        .map_err(|e| BrowserError::Internal(format!("{what}: parse extracted JSON: {e}")))?;
 
     Ok(raw
         .into_iter()
@@ -136,4 +196,34 @@ pub async fn list_drive_folder(binary: &Path, folder_id: &str) -> Result<Vec<Dri
             tooltip: r.tooltip,
         })
         .collect())
+}
+
+/// URL の query value 用の percent encoding (RFC 3986 unreserved set 以外をエスケープ)。
+fn percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{:02X}", b));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_encode_alphanum_passthrough() {
+        assert_eq!(percent_encode("abc123"), "abc123");
+        assert_eq!(percent_encode("hello-world_x.y~z"), "hello-world_x.y~z");
+    }
+
+    #[test]
+    fn percent_encode_space_and_unicode() {
+        assert_eq!(percent_encode("a b"), "a%20b");
+        assert_eq!(percent_encode("[受講生]講義資料"), "%5B%E5%8F%97%E8%AC%9B%E7%94%9F%5D%E8%AC%9B%E7%BE%A9%E8%B3%87%E6%96%99");
+    }
 }
