@@ -5,7 +5,7 @@
 //! 1. **非認証** (常時実行): clap / target parse / envelope 契約。ネットワークにも
 //!    agent-browser にも触れない。
 //! 2. **認証** (`#[ignore]` + env opt-in): 実 Google Drive に対する read-only round-trip。
-//!    Phase D-2 の agent-browser DOM scrape / download 経路を実機で検証する。
+//!    agent-browser の DOM scrape / download 経路を実機で検証する。
 //!    daemon は TempXdg の HOME 配下に新規に立つため、テストごとに
 //!    auth login (MOOCs + Google SAML) からフルに回る。
 //!
@@ -20,7 +20,9 @@
 
 use serde_json::Value;
 
-use super::common::{assert_failure_envelope, assert_success_envelope, imoocs_in, TempXdg};
+use super::common::{
+    assert_failure_envelope, assert_success_envelope, imoocs_in, imoocs_in_with_host_services, TempXdg,
+};
 use crate::require_env;
 
 // ─── 非認証: clap / parse / envelope 契約 ────────────────────────────────────
@@ -93,7 +95,7 @@ fn drive_folders_with_clean_xdg_reports_not_registered() {
     );
 }
 
-// ─── 認証: 実 Drive への read-only round-trip (Phase D-2 実機検証) ───────────
+// ─── 認証: 実 Drive への read-only round-trip ───────────
 
 /// 認証系共通の前置: credentials env を確認して auth login まで済ませた
 /// TempXdg を返す。env 不足や login 失敗時は `[skip]` を出して None。
@@ -132,17 +134,10 @@ fn ensure_drive_xdg() -> Option<TempXdg> {
     Some(xdg)
 }
 
-/// PATH (agent-browser 発見用) と D-Bus 系 (keyring = Secret Service アクセス用)
-/// を親から引き継いだ `imoocs` コマンド。`imoocs_in` は `env_clear()` するため、
-/// 認証系テストに必要な env だけ明示的に通す。
+/// agent-browser + keyring を実際に使うため、ホストのサービス系 env を
+/// 引き継いだ `imoocs` コマンド (common::imoocs_in_with_host_services の別名)。
 fn drive_cmd(xdg: &TempXdg) -> assert_cmd::Command {
-    let mut cmd = imoocs_in(xdg);
-    for key in ["PATH", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"] {
-        if let Some(v) = std::env::var_os(key) {
-            cmd.env(key, v);
-        }
-    }
-    cmd
+    imoocs_in_with_host_services(xdg)
 }
 
 #[test]
@@ -166,7 +161,10 @@ fn drive_list_real_folder_returns_items() {
     assert!(!items.is_empty(), "expected at least 1 item in folder: {data:#}");
     for item in items {
         assert!(item.get("id").and_then(Value::as_str).is_some(), "item.id: {item:#}");
-        assert!(item.get("name").and_then(Value::as_str).is_some(), "item.name: {item:#}");
+        assert!(
+            item.get("name").and_then(Value::as_str).is_some(),
+            "item.name: {item:#}"
+        );
         let kind = item.get("kind").and_then(Value::as_str);
         assert!(
             matches!(kind, Some("folder") | Some("file")),
@@ -230,8 +228,8 @@ fn drive_fetch_real_file_downloads_then_serves_from_cache() {
         .get("localPath")
         .and_then(Value::as_str)
         .unwrap_or_else(|| panic!("expected localPath: {data:#}"));
-    let meta = std::fs::metadata(local_path)
-        .unwrap_or_else(|e| panic!("downloaded file should exist at {local_path}: {e}"));
+    let meta =
+        std::fs::metadata(local_path).unwrap_or_else(|e| panic!("downloaded file should exist at {local_path}: {e}"));
     assert!(meta.len() > 0, "downloaded file must not be empty");
     assert_eq!(
         data.get("sizeBytes").and_then(Value::as_u64),

@@ -25,3 +25,19 @@ pub fn imoocs_in(xdg: &TempXdg) -> Command {
         .env("RUST_BACKTRACE", "0");
     cmd
 }
+
+/// agent-browser (PATH 探索) と keyring (Secret Service = D-Bus) を実際に使う
+/// 認証系テスト用に、ホストのサービス系 env だけ引き継ぐ env キーの一覧。
+pub const HOST_SERVICE_ENV_KEYS: &[&str] = &["PATH", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"];
+
+/// `imoocs_in` + ホストのサービス系 env (PATH / D-Bus) を引き継いだコマンド。
+/// auth login や drive / slides など agent-browser・keyring に触れるテストで使う。
+pub fn imoocs_in_with_host_services(xdg: &TempXdg) -> Command {
+    let mut cmd = imoocs_in(xdg);
+    for key in HOST_SERVICE_ENV_KEYS {
+        if let Some(v) = std::env::var_os(key) {
+            cmd.env(key, v);
+        }
+    }
+    cmd
+}
