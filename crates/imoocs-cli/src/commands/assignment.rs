@@ -16,6 +16,7 @@ use imoocs_core::{
     session::Session,
     ImoocsError,
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use serde_json::{json, Value};
 
 use crate::cli::GlobalArgs;
@@ -83,47 +84,50 @@ pub enum AssignmentCommand {
     /// 答案を記録する。`assignment.confirm = "auto"` では即サーバ確定
     /// (PUT /answers, `force=true`)、`"confirm"` ではローカル draft に stage
     /// だけ行い、確定は `imoocs assignment push` が担う。
+    ///
+    /// `--url` は必須: 課題ページ URL があれば lesson/page を解決する
+    /// ための 15 秒の course-list 走査を skip できる。同じページに課題が複数あれば
+    /// `--problem-id` で 1 つに絞る。
     Submit {
-        #[arg(required_unless_present = "url")]
-        course_id: Option<String>,
-        #[arg(required_unless_present = "url")]
-        problem_id: Option<String>,
+        /// 課題ページ URL (例: `https://moocs.iniad.org/courses/2026/INI301/AI-10/09`)。
+        #[arg(long)]
+        url: String,
         /// 提出する答案。JSON `{pid: value}` / `@path` / `-` (stdin) を受け付ける。
         #[arg(long)]
         data: String,
-        #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
-        url: Option<String>,
+        /// ページに `.problem-container` が複数あるとき、対象を絞り込む。
+        #[arg(long)]
+        problem_id: Option<String>,
     },
     /// ファイル答案を記録する。`auto` では即サーバ確定
     /// (POST /file/<pid>?force=true)、`confirm` では draft の
     /// `files[pid]` に絶対パスを stage する。
+    ///
+    /// `--url` は必須。
     Upload {
-        #[arg(required_unless_present = "url")]
-        course_id: Option<String>,
-        #[arg(required_unless_present = "url")]
-        problem_id: Option<String>,
+        /// 課題ページ URL。
+        #[arg(long)]
+        url: String,
         /// ファイル答案用の problem field id。
         #[arg(long)]
         pid: String,
-        /// upload するローカルファイル。conditionally-required にしているのは、
-        /// 上の Option<String> な course_id / problem_id positional に対して
-        /// clap の positional 順序 assert が発火するのを避けるため。
-        /// 未指定で `--url` もない場合は runtime で検査する。
-        #[arg(required_unless_present = "url")]
-        file: Option<PathBuf>,
-        #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
-        url: Option<String>,
+        /// upload するローカルファイル。
+        #[arg(long, short = 'f')]
+        file: PathBuf,
+        /// ページに `.problem-container` が複数あるとき、対象を絞り込む。
+        #[arg(long)]
+        problem_id: Option<String>,
     },
     /// ローカル draft をサーバに確定送信する (stage した答案を finalise)。
     /// TTY 必須。`put_answers(force=true)` → 各 `post_file(force=true)` を
     /// 順次叩き、全部成功したら draft を削除する。途中失敗は draft を残し
     /// API_ERROR / NETWORK_ERROR で止める (再実行で resume できる)。
+    ///
+    /// デフォルトは **stage 済みの全 draft を一括送信**。
+    /// `--url` を渡すと該当 draft 1 つだけ送信する。
     Push {
-        #[arg(required_unless_present = "url")]
-        course_id: Option<String>,
-        #[arg(required_unless_present = "url")]
-        problem_id: Option<String>,
-        #[arg(long, conflicts_with_all = ["course_id", "problem_id"])]
+        /// 特定 draft の課題ページ URL。省略すると全 draft を順次送信する。
+        #[arg(long)]
         url: Option<String>,
     },
     /// ローカルに stage された draft の閲覧 / 削除。
@@ -194,7 +198,8 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             lang,
             url,
         } => {
-            let key = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
+            let (key, _page_url) = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await
+            {
                 Ok(k) => k,
                 Err(e) => return Ok(emit_err(e)),
             };
@@ -206,24 +211,16 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
                 Err(e) => Ok(emit_err(e)),
             }
         }
-        AssignmentCommand::Submit {
-            course_id,
-            problem_id,
-            data,
-            url,
-        } => run_submit(&session, global, course_id, problem_id, data, url).await,
+        AssignmentCommand::Submit { url, data, problem_id } => {
+            run_submit(&session, global, url, data, problem_id).await
+        }
         AssignmentCommand::Upload {
-            course_id,
-            problem_id,
+            url,
             pid,
             file,
-            url,
-        } => run_upload(&session, global, course_id, problem_id, pid, file, url).await,
-        AssignmentCommand::Push {
-            course_id,
             problem_id,
-            url,
-        } => run_push(&session, global, course_id, problem_id, url).await,
+        } => run_upload(&session, global, url, pid, file, problem_id).await,
+        AssignmentCommand::Push { url } => run_push(&session, global, url).await,
         AssignmentCommand::Drafts { cmd } => run_drafts(&session, global, cmd).await,
     }
 }
@@ -231,19 +228,11 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
 async fn run_submit(
     session: &Session,
     global: &GlobalArgs,
-    course_id: Option<String>,
-    problem_id: Option<String>,
+    url: String,
     data: String,
-    url: Option<String>,
+    problem_id: Option<String>,
 ) -> Result<ExitCode> {
-    let key = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
-        Ok(k) => k,
-        Err(e) => return Ok(emit_err(e)),
-    };
-    let parsed = match parse_data(&data) {
-        Ok(p) => p,
-        Err(e) => return Ok(emit_err(e)),
-    };
+    // network より前に config / payload を validate する (early-fail で network を節約)。
     let cfg = match Config::load(&session.paths.config_file()) {
         Ok(c) => c,
         Err(e) => return Ok(emit_err(e)),
@@ -252,15 +241,43 @@ async fn run_submit(
         Ok(g) => g,
         Err(e) => return Ok(emit_err(e)),
     };
+    let parsed = match parse_data(&data) {
+        Ok(p) => p,
+        Err(e) => return Ok(emit_err(e)),
+    };
+    let (key, page_url_hint) = match resolve_key(session, global.year, None, problem_id, Some(url.as_str())).await {
+        Ok(k) => k,
+        Err(e) => return Ok(emit_err(e)),
+    };
 
     match gate {
-        SubmitGate::Direct => match api::put_answers(session, &key, parsed, true).await {
-            Ok(v) => {
-                output::emit_success(v, global.format);
-                Ok(ExitCode::from(0))
+        SubmitGate::Direct => {
+            let page_url = match page_url_hint {
+                Some(u) => u,
+                None => match resolve_page_url(session, &key).await {
+                    Ok(u) => u,
+                    Err(e) => return Ok(emit_err(e)),
+                },
+            };
+            let n = parsed.len();
+            let spinner = make_spinner(format!("Submitting {}/{} ({n} pid)", key.course_id, key.problem_id));
+            let res = api::put_answers(session, &key, &page_url, parsed, true).await;
+            match res {
+                Ok(v) => {
+                    spinner.finish_and_clear();
+                    let course = key.course_id.clone();
+                    let problem = key.problem_id.clone();
+                    output::emit_success_text(v, global.format, move |r| {
+                        format!("✓ {course}/{problem} submitted (answers={n}, status={:?})", r.status)
+                    });
+                    Ok(ExitCode::from(0))
+                }
+                Err(e) => {
+                    spinner.abandon_with_message(format!("✗ {}/{} submit failed", key.course_id, key.problem_id));
+                    Ok(emit_err(e))
+                }
             }
-            Err(e) => Ok(emit_err(e)),
-        },
+        }
         SubmitGate::Stage => {
             let drafts_dir = session.paths.drafts_dir();
             let mut draft = match Draft::load_or_new(&drafts_dir, &key) {
@@ -269,6 +286,10 @@ async fn run_submit(
             };
             draft.answers = parsed;
             draft.answers_staged = true;
+            // push が agent-browser に渡す navigate 先として保存。
+            if let Some(ref u) = page_url_hint {
+                draft.page_url = u.clone();
+            }
             let draft_path = match draft.save(&drafts_dir) {
                 Ok(p) => p,
                 Err(e) => return Ok(emit_err(e)),
@@ -284,7 +305,15 @@ async fn run_submit(
                 files: draft.files.clone(),
                 hint: push_hint(&draft.course_id, &draft.problem_id),
             };
-            output::emit_success(result, global.format);
+            output::emit_success_text(result, global.format, |r| {
+                format!(
+                    "✓ {}/{} staged (answers={}, files={}) — `imoocs assignment push` で確定",
+                    r.course_id,
+                    r.problem_id,
+                    r.answers.len(),
+                    r.files.len(),
+                )
+            });
             Ok(ExitCode::from(0))
         }
     }
@@ -293,24 +322,11 @@ async fn run_submit(
 async fn run_upload(
     session: &Session,
     global: &GlobalArgs,
-    course_id: Option<String>,
-    problem_id: Option<String>,
+    url: String,
     pid: String,
-    file: Option<PathBuf>,
-    url: Option<String>,
+    file: PathBuf,
+    problem_id: Option<String>,
 ) -> Result<ExitCode> {
-    let file = match file {
-        Some(p) => p,
-        None => {
-            return Ok(emit_err(ImoocsError::Validation(
-                "`assignment upload` requires a file path".into(),
-            )));
-        }
-    };
-    let key = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
-        Ok(k) => k,
-        Err(e) => return Ok(emit_err(e)),
-    };
     let cfg = match Config::load(&session.paths.config_file()) {
         Ok(c) => c,
         Err(e) => return Ok(emit_err(e)),
@@ -319,22 +335,49 @@ async fn run_upload(
         Ok(g) => g,
         Err(e) => return Ok(emit_err(e)),
     };
+    let (key, page_url_hint) = match resolve_key(session, global.year, None, problem_id, Some(url.as_str())).await {
+        Ok(k) => k,
+        Err(e) => return Ok(emit_err(e)),
+    };
 
     match gate {
-        SubmitGate::Direct => match api::post_file(session, &key, &pid, &file, true).await {
-            Ok(()) => {
-                let result = UploadResult {
-                    ok: true,
-                    pid,
-                    staged: false,
-                    submitted: true,
-                    draft_path: None,
-                };
-                output::emit_success(result, global.format);
-                Ok(ExitCode::from(0))
+        SubmitGate::Direct => {
+            let page_url = match page_url_hint {
+                Some(u) => u,
+                None => match resolve_page_url(session, &key).await {
+                    Ok(u) => u,
+                    Err(e) => return Ok(emit_err(e)),
+                },
+            };
+            let filename = file.file_name().and_then(|s| s.to_str()).unwrap_or("file").to_string();
+            let spinner = make_spinner(format!(
+                "Uploading {}/{} {pid} ({filename})",
+                key.course_id, key.problem_id
+            ));
+            let res = api::post_file(session, &key, &page_url, &pid, &file, true).await;
+            match res {
+                Ok(()) => {
+                    spinner.finish_and_clear();
+                    let result = UploadResult {
+                        ok: true,
+                        pid: pid.clone(),
+                        staged: false,
+                        submitted: true,
+                        draft_path: None,
+                    };
+                    let course = key.course_id.clone();
+                    let problem = key.problem_id.clone();
+                    output::emit_success_text(result, global.format, move |r| {
+                        format!("✓ {course}/{problem} uploaded {} ({filename})", r.pid)
+                    });
+                    Ok(ExitCode::from(0))
+                }
+                Err(e) => {
+                    spinner.abandon_with_message(format!("✗ {}/{} {pid} upload failed", key.course_id, key.problem_id));
+                    Ok(emit_err(e))
+                }
             }
-            Err(e) => Ok(emit_err(e)),
-        },
+        }
         SubmitGate::Stage => {
             let abs_file = match file.canonicalize() {
                 Ok(p) => p,
@@ -351,6 +394,10 @@ async fn run_upload(
                 Err(e) => return Ok(emit_err(e)),
             };
             draft.files.insert(pid.clone(), abs_file);
+            // push が agent-browser に渡す navigate 先として保存。
+            if let Some(ref u) = page_url_hint {
+                draft.page_url = u.clone();
+            }
             let draft_path = match draft.save(&drafts_dir) {
                 Ok(p) => p,
                 Err(e) => return Ok(emit_err(e)),
@@ -362,19 +409,21 @@ async fn run_upload(
                 submitted: false,
                 draft_path: Some(draft_path),
             };
-            output::emit_success(result, global.format);
+            let course = key.course_id.clone();
+            let problem = key.problem_id.clone();
+            output::emit_success_text(result, global.format, move |r| {
+                format!(
+                    "✓ {course}/{problem} staged {} — `imoocs assignment push` で確定",
+                    r.pid
+                )
+            });
             Ok(ExitCode::from(0))
         }
     }
 }
 
-async fn run_push(
-    session: &Session,
-    global: &GlobalArgs,
-    course_id: Option<String>,
-    problem_id: Option<String>,
-    url: Option<String>,
-) -> Result<ExitCode> {
+/// `--url` で 1 つだけ送信、引数なしで **全 draft 一括送信**。
+async fn run_push(session: &Session, global: &GlobalArgs, url: Option<String>) -> Result<ExitCode> {
     let cfg = match Config::load(&session.paths.config_file()) {
         Ok(c) => c,
         Err(e) => return Ok(emit_err(e)),
@@ -386,25 +435,83 @@ async fn run_push(
         return Ok(emit_err(e));
     }
 
-    let key = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
-        Ok(k) => k,
-        Err(e) => return Ok(emit_err(e)),
-    };
     let drafts_dir = session.paths.drafts_dir();
-    let draft = match Draft::load(&drafts_dir, &key) {
-        Ok(Some(d)) => d,
-        Ok(None) => {
-            return Ok(emit_err(ImoocsError::NotFound {
-                what: format!(
-                    "no draft staged for {course}/{problem}. Run `imoocs assignment submit` or `upload` first.",
-                    course = key.course_id,
-                    problem = key.problem_id
-                ),
-            }));
+
+    // 対象 draft を決定する。`--url` 指定なら該当 1 件、無しなら全件。
+    let target_keys: Vec<AssignmentKey> = match url {
+        Some(u) => {
+            let (key, _hint) = match resolve_key(session, global.year, None, None, Some(u.as_str())).await {
+                Ok(k) => k,
+                Err(e) => return Ok(emit_err(e)),
+            };
+            vec![key]
         }
-        Err(e) => return Ok(emit_err(e)),
+        None => match Draft::list(&drafts_dir) {
+            Ok(summaries) => summaries
+                .into_iter()
+                .map(|s| AssignmentKey {
+                    year: s.year,
+                    course_id: s.course_id,
+                    problem_id: s.problem_id,
+                })
+                .collect(),
+            Err(e) => return Ok(emit_err(e)),
+        },
     };
-    let draft_path = Draft::path_for(&drafts_dir, &key);
+
+    if target_keys.is_empty() {
+        return Ok(emit_err(ImoocsError::NotFound {
+            what: "no draft staged. Run `imoocs assignment submit` or `upload` first.".into(),
+        }));
+    }
+
+    // 順次 push。1 件失敗したらそこで停止 (resume は再実行で対応)。
+    let total = target_keys.len();
+    let mut results: Vec<PushResult> = Vec::with_capacity(total);
+    for (i, key) in target_keys.iter().enumerate() {
+        let label = format!("[{}/{}] {}/{}", i + 1, total, key.course_id, key.problem_id);
+        match push_one_draft(session, &cfg, &drafts_dir, key, &label).await {
+            Ok(r) => results.push(r),
+            Err(e) => return Ok(emit_err(e)),
+        }
+    }
+    // text モードなら 1 行サマリ、json モードなら従来の envelope。
+    output::emit_success_text(results, global.format, |rs| {
+        rs.iter()
+            .map(|r| {
+                let status = r.status.map(|s| format!(", status={s:?}")).unwrap_or_default();
+                format!(
+                    "✓ {}/{} (answers={}, files={}{})",
+                    r.course_id,
+                    r.problem_id,
+                    r.answers_submitted_pids.len(),
+                    r.files_submitted_pids.len(),
+                    status,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    });
+    Ok(ExitCode::from(0))
+}
+
+/// 単一 draft の push (put_answers + 各 post_file)。成功したら draft を削除する。
+/// `label` は stderr に表示する prefix (例: `[1/2] INI301/ai-10-free`)。
+async fn push_one_draft(
+    session: &Session,
+    cfg: &Config,
+    drafts_dir: &Path,
+    key: &AssignmentKey,
+    label: &str,
+) -> std::result::Result<PushResult, ImoocsError> {
+    let draft = Draft::load(drafts_dir, key)?.ok_or_else(|| ImoocsError::NotFound {
+        what: format!(
+            "no draft staged for {course}/{problem}. Run `imoocs assignment submit` or `upload` first.",
+            course = key.course_id,
+            problem = key.problem_id
+        ),
+    })?;
+    let draft_path = Draft::path_for(drafts_dir, key);
 
     let mut answer_pids: Vec<String> = draft.answers.keys().cloned().collect();
     answer_pids.sort();
@@ -424,16 +531,34 @@ async fn run_push(
         answer_pids: &answer_pids,
         file_pids: &file_pids,
     };
-    if let Err(e) = confirm::resolve_push_gate(&cfg, &action) {
-        return Ok(emit_err(e));
-    }
+    confirm::resolve_push_gate(cfg, &action)?;
+
+    // draft.page_url が保存されていればそれを使う (= list skip)。
+    // 旧形式の draft で空文字列なら resolve_page_url に fallback (15s)。
+    let page_url = if draft.page_url.is_empty() {
+        resolve_page_url(session, key)
+            .await
+            .map_err(|e| decorate_push_err(e, &draft_path))?
+    } else {
+        draft.page_url.clone()
+    };
 
     // upload 単独で作られた draft は `answers_staged = false` のまま。
     // その場合 `put_answers` をスキップしないと `{}` で既存 answers を wipe する。
     let answer_result: Option<AnswerResult> = if draft.answers_staged {
-        match api::put_answers(session, &key, draft.answers.clone(), true).await {
-            Ok(v) => Some(v),
-            Err(e) => return Ok(emit_err(decorate_push_err(e, &draft_path))),
+        let spinner = make_spinner(format!("{label} submitting answers ({} pid)", answer_pids.len()));
+        let r = api::put_answers(session, key, &page_url, draft.answers.clone(), true)
+            .await
+            .map_err(|e| decorate_push_err(e, &draft_path));
+        match r {
+            Ok(v) => {
+                spinner.finish_with_message(format!("{label} answers ✓"));
+                Some(v)
+            }
+            Err(e) => {
+                spinner.abandon_with_message(format!("{label} answers ✗"));
+                return Err(e);
+            }
         }
     } else {
         None
@@ -443,18 +568,27 @@ async fn run_push(
     let mut files_sorted: Vec<(&String, &PathBuf)> = draft.files.iter().collect();
     files_sorted.sort_by(|a, b| a.0.cmp(b.0));
     for (pid, path) in files_sorted {
-        match api::post_file(session, &key, pid, path, true).await {
-            Ok(()) => files_submitted.push(pid.clone()),
-            Err(e) => return Ok(emit_err(decorate_push_err(e, &draft_path))),
+        let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("file");
+        let spinner = make_spinner(format!("{label} uploading {pid} ({filename})"));
+        let r = api::post_file(session, key, &page_url, pid, path, true)
+            .await
+            .map_err(|e| decorate_push_err(e, &draft_path));
+        match r {
+            Ok(()) => {
+                spinner.finish_with_message(format!("{label} {pid} ✓"));
+                files_submitted.push(pid.clone());
+            }
+            Err(e) => {
+                spinner.abandon_with_message(format!("{label} {pid} ✗"));
+                return Err(e);
+            }
         }
     }
 
-    if let Err(e) = Draft::remove(&drafts_dir, &key) {
-        return Ok(emit_err(e));
-    }
+    Draft::remove(drafts_dir, key)?;
 
     let effective_answer_pids = if draft.answers_staged { answer_pids } else { Vec::new() };
-    let result = PushResult {
+    Ok(PushResult {
         pushed: true,
         submitted: true,
         year: draft.year,
@@ -463,9 +597,7 @@ async fn run_push(
         answers_submitted_pids: effective_answer_pids,
         files_submitted_pids: files_submitted,
         status: answer_result.map(|r| r.status),
-    };
-    output::emit_success(result, global.format);
-    Ok(ExitCode::from(0))
+    })
 }
 
 async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) -> Result<ExitCode> {
@@ -483,12 +615,15 @@ async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) 
             problem_id,
             url,
         } => {
-            let key = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
+            let (key, _page_url) = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await
+            {
                 Ok(k) => k,
                 Err(e) => return Ok(emit_err(e)),
             };
             match Draft::load(&drafts_dir, &key) {
                 Ok(Some(d)) => {
+                    // drafts show は内容閲覧なので text モードでも JSON 出力する
+                    // (簡素化対象は「実行結果サマリ」だけで、データ閲覧はそのまま)
                     output::emit_success(d, global.format);
                     Ok(ExitCode::from(0))
                 }
@@ -529,7 +664,9 @@ async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) 
                         }
                     }
                 }
-                output::emit_success(json!({ "cleared": "all", "removed": removed }), global.format);
+                output::emit_success_text(json!({ "cleared": "all", "removed": removed }), global.format, |_| {
+                    format!("✓ Cleared {removed} draft(s)")
+                });
                 Ok(ExitCode::from(0))
             } else {
                 // clap の Option<String> 4 つをそのまま resolve_key に渡すと
@@ -540,18 +677,28 @@ async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) 
                             .into(),
                     )));
                 }
-                let key = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
-                    Ok(k) => k,
-                    Err(e) => return Ok(emit_err(e)),
-                };
+                let (key, _page_url) =
+                    match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(emit_err(e)),
+                    };
                 match Draft::remove(&drafts_dir, &key) {
                     Ok(existed) => {
-                        output::emit_success(
+                        let course = key.course_id.clone();
+                        let problem = key.problem_id.clone();
+                        output::emit_success_text(
                             json!({
-                                "cleared": format!("{}/{}", key.course_id, key.problem_id),
+                                "cleared": format!("{course}/{problem}"),
                                 "existed": existed,
                             }),
                             global.format,
+                            move |_| {
+                                if existed {
+                                    format!("✓ Cleared {course}/{problem}")
+                                } else {
+                                    format!("- No draft for {course}/{problem}")
+                                }
+                            },
                         );
                         Ok(ExitCode::from(0))
                     }
@@ -562,8 +709,19 @@ async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) 
     }
 }
 
-fn push_hint(course: &str, problem: &str) -> String {
-    format!("Draft staged locally. Run `imoocs assignment push {course} {problem}` from your TTY to finalise.")
+/// ぐるぐる回る spinner を生成する。stderr に出力 (stdout の JSON envelope を汚さない)。
+/// TTY でない場合は indicatif が自動で no-op になる。
+fn make_spinner(message: String) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap_or(ProgressStyle::default_spinner()));
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+    pb.set_message(message);
+    pb
+}
+
+fn push_hint(_course: &str, _problem: &str) -> String {
+    // push は引数なしで全 draft 一括送信。`--url` で個別指定。
+    "Draft staged locally. Run `imoocs assignment push` from your TTY to finalise.".into()
 }
 
 /// push 実行中に出たエラーに「draft を残しているので再実行で resume できる」注記を足す。
@@ -588,16 +746,21 @@ fn decorate_push_err(err: ImoocsError, draft_path: &Path) -> ImoocsError {
 }
 
 /// positional の `course_id` / `problem_id` または `--url` から
-/// [`AssignmentKey`] を解決する。URL は lesson page を指す必要があり、
-/// `.problem-container[data-problem]` が 1 つしかない場合のみ
-/// `problem_id` を自動推定する。
+/// [`AssignmentKey`] と (URL 経路の場合) 課題ページ URL を解決する。
+///
+/// `page_url` を返すのは高速化のため: write 系 (`put_answers` /
+/// `post_file`) が agent-browser navigate 先として使う。URL 経路 (= ユーザが
+/// `--url` で lesson/page を渡した) では既に lesson_id/page_id が確定するので
+/// 直接組み立てて `Some` で返し、`list_course_assignments` (15s) を skip できる。
+/// positional 経路では `None` を返し、呼び出し側で `resolve_page_url` の list
+/// フォールバックに委ねる。
 async fn resolve_key(
     session: &Session,
     global_year: Option<u32>,
     course_id: Option<String>,
     problem_id: Option<String>,
     url: Option<&str>,
-) -> std::result::Result<AssignmentKey, ImoocsError> {
+) -> std::result::Result<(AssignmentKey, Option<String>), ImoocsError> {
     if let Some(u) = url {
         let (year, course_id, lesson_id, page_id) = match url::parse(u) {
             Some(MoocsPath::Page {
@@ -617,17 +780,55 @@ async fn resolve_key(
                 )))
             }
         };
+        // `--problem-id` がユーザ指定で渡されているとき、URL が `/<lesson>/<page>` 形式なら
+        // ネットワークを叩かずに直接 AssignmentKey + page_url を構築する。これは:
+        // - submit/upload を高速化 (= page fetch 1 回ぶん約 1 秒節約)
+        // - e2e / オフラインでの stage モード動作を可能にする
+        if let (Some(pid), Some(page_id_str)) = (problem_id.clone(), page_id.clone()) {
+            let key = AssignmentKey {
+                year,
+                course_id: course_id.clone(),
+                problem_id: pid,
+            };
+            let page_url = format!("https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{page_id_str}");
+            return Ok((key, Some(page_url)));
+        }
+        // 自動推定経路: page を fetch して `.problem-container` の id を読む。
         let lc = api::get_lesson_page(session, year, &course_id, &lesson_id, page_id.as_deref()).await?;
+        let resolved_page_id = lc.page_id.clone();
         let problems = lc.assignments;
+        // user が --problem-id を指定したなら、ページ内の id 集合に存在することだけ確認して採用。
+        if let Some(pid) = problem_id {
+            if !problems.iter().any(|p| p == &pid) {
+                return Err(ImoocsError::NotFound {
+                    what: format!(
+                        "problem_id `{pid}` not on page {u} (found: {list})",
+                        list = problems.join(", ")
+                    ),
+                });
+            }
+            let key = AssignmentKey {
+                year,
+                course_id: course_id.clone(),
+                problem_id: pid,
+            };
+            let page_url = format!("https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{resolved_page_id}");
+            return Ok((key, Some(page_url)));
+        }
         match problems.len() {
             0 => Err(ImoocsError::NotFound {
                 what: format!("no `.problem-container` on page {u}"),
             }),
-            1 => Ok(AssignmentKey {
-                year,
-                course_id,
-                problem_id: problems.into_iter().next().unwrap(),
-            }),
+            1 => {
+                let key = AssignmentKey {
+                    year,
+                    course_id: course_id.clone(),
+                    problem_id: problems.into_iter().next().unwrap(),
+                };
+                let page_url =
+                    format!("https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{resolved_page_id}");
+                Ok((key, Some(page_url)))
+            }
             n => Err(ImoocsError::Validation(format!(
                 "page has {n} assignments; pass --problem-id explicitly (one of: {list})",
                 list = problems.join(", ")
@@ -638,12 +839,48 @@ async fn resolve_key(
             Some(y) => y,
             None => api::resolve_latest_year(session).await?,
         };
-        Ok(AssignmentKey {
+        let key = AssignmentKey {
             year,
             course_id: course_id.expect("clap guarantees course_id when --url is missing"),
             problem_id: problem_id.expect("clap guarantees problem_id when --url is missing"),
-        })
+        };
+        Ok((key, None))
     }
+}
+
+/// write 系 (`put_answers` / `post_file`) は agent-browser navigate に
+/// 課題ページ URL が必須。`list_course_assignments` で逆引きして lesson_id + page_id
+/// を埋め、`/courses/<year>/<course>/<lesson>/<page>` を返す。
+///
+/// list は course 全体を走査するので 5〜10 秒掛かるが、submit/upload は頻度が
+/// 低いので許容範囲。`resolve_key` で URL 経路を通った場合 (= 既に lesson/page を
+/// 知っている) でも、現状は `AssignmentKey` がそれを保持しないので再取得になる。
+/// 将来 `resolve_key` を struct 返却に変えるなら短縮可能。
+async fn resolve_page_url(session: &Session, key: &AssignmentKey) -> std::result::Result<String, ImoocsError> {
+    let list = api::list_course_assignments(session, key.year, &key.course_id).await?;
+    let found = list
+        .iter()
+        .find(|a| a.problem_id == key.problem_id)
+        .ok_or_else(|| ImoocsError::NotFound {
+            what: format!(
+                "problem_id `{}` not found in course `{}` (year {}); double-check the id or pass --url",
+                key.problem_id, key.course_id, key.year
+            ),
+        })?;
+    let lesson_id = found.lesson_id.as_deref().ok_or_else(|| {
+        ImoocsError::Internal(format!(
+            "list_course_assignments did not return lesson_id for problem `{}`",
+            key.problem_id
+        ))
+    })?;
+    let page_id = &found.page_id;
+    Ok(format!(
+        "https://moocs.iniad.org/courses/{year}/{course}/{lesson}/{page}",
+        year = key.year,
+        course = key.course_id,
+        lesson = lesson_id,
+        page = page_id,
+    ))
 }
 
 fn parse_data(raw: &str) -> std::result::Result<HashMap<String, Value>, ImoocsError> {

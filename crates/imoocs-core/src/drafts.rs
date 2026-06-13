@@ -24,6 +24,12 @@ pub struct Draft {
     pub year: Year,
     pub course_id: String,
     pub problem_id: String,
+    /// 課題が載っている lesson page の URL。
+    /// `push` が agent-browser に渡す navigate 先として使う。
+    /// 旧形式の draft では空文字列 (= `#[serde(default)]`)、その場合は
+    /// `resolve_page_url` の list フォールバックに委ねる。
+    #[serde(default)]
+    pub page_url: String,
     #[serde(default)]
     pub answers: HashMap<String, Value>,
     /// `submit` が呼ばれて `answers` を stage したかどうか。`upload` 単独で
@@ -56,6 +62,7 @@ impl Draft {
             year: key.year,
             course_id: key.course_id.clone(),
             problem_id: key.problem_id.clone(),
+            page_url: String::new(),
             answers: HashMap::new(),
             answers_staged: false,
             files: HashMap::new(),

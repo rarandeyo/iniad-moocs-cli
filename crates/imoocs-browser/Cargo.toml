@@ -1,0 +1,24 @@
+[package]
+name = "imoocs-browser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "agent-browser wrapper layer for imoocs (Phase A1+). Spawns agent-browser as an external process."
+
+[lints.rust]
+missing_debug_implementations = "deny"
+
+[dependencies]
+imoocs-types = { path = "../imoocs-types" }
+anyhow.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process"] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+async-trait = "0.1"
+scopeguard = "1"
+zeroize = "1"

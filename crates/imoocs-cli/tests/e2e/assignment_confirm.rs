@@ -51,7 +51,16 @@ fn submit_without_confirm_config_emits_validation_error_with_hint() {
     let xdg = TempXdg::new();
     let assert = imoocs_in(&xdg)
         .env("IMOOCS_YEAR", "2026")
-        .args(["assignment", "submit", "CS101", "prob-a", "--data", "{}"])
+        .args([
+            "assignment",
+            "submit",
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
+            "prob-a",
+            "--data",
+            "{}",
+        ])
         .assert()
         .code(3);
     let view = assert_failure_envelope(&assert.get_output().stdout);
@@ -81,7 +90,9 @@ fn submit_with_data_at_path_stages_draft_from_file() {
             "json",
             "assignment",
             "submit",
-            "CS101",
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
             "prob-a",
             "--data",
             &at_arg,
@@ -110,7 +121,9 @@ fn submit_with_data_dash_reads_payload_from_stdin() {
             "json",
             "assignment",
             "submit",
-            "CS101",
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
             "prob-a",
             "--data",
             "-",
@@ -132,7 +145,16 @@ fn submit_with_invalid_json_payload_emits_validation_error() {
     xdg.write_config(CONFIG_CONFIRM);
     let assert = imoocs_in(&xdg)
         .env("IMOOCS_YEAR", "2026")
-        .args(["assignment", "submit", "CS101", "prob-a", "--data", "not-json"])
+        .args([
+            "assignment",
+            "submit",
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
+            "prob-a",
+            "--data",
+            "not-json",
+        ])
         .assert()
         .code(3);
     let view = assert_failure_envelope(&assert.get_output().stdout);

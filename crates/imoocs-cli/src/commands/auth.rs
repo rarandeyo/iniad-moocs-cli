@@ -115,6 +115,10 @@ pub async fn do_login(
             cfg.username = Some(username.clone());
             cfg.save(&paths.config_file())?;
             info!("authenticated as {}", username);
+            // write 系 (submit/upload/push) は agent-browser daemon を経由する。
+            // server 側が reqwest と Chrome の session を別物として扱うため、両方で
+            // 独立に login しておく。失敗しても read 系は動くので warning に留める。
+            establish_agent_browser_session(&username, &creds.password);
             Ok(LoginOutcome { username })
         }
         Err(err @ ImoocsError::Auth { .. }) => {
@@ -123,6 +127,58 @@ pub async fn do_login(
             Err(err)
         }
         Err(err) => Err(err),
+    }
+}
+
+/// agent-browser daemon Chrome に MOOCs + Google session を確立する。失敗しても
+/// reqwest 経由の read 系は動くので、ここでは warning のみ表示して `Ok` 同等に処理する。
+///
+/// 順序: MOOCs (Keycloak) → Google (SAML chain + speedbump)。Google SAML chain は
+/// Keycloak セッションが確立済みであることが前提なので、必ずこの順で実行する。
+fn establish_agent_browser_session(username: &str, password: &str) {
+    let Some(binary) = imoocs_browser::discover_binary() else {
+        eprintln!(
+            "warning: agent-browser binary not found; `submit` / `upload` / `push` (write 系) と slide/drive 取得は利用できません。\n  install: `cargo install agent-browser --locked` または `npm i -g agent-browser`"
+        );
+        return;
+    };
+    let creds = imoocs_types::Credentials::new(username.to_string(), password.to_string());
+
+    // MOOCs (Keycloak) daemon login。write 系の前提。
+    let moocs_result = run_sync(async { imoocs_browser::commands::auth_moocs::login_moocs(&binary, &creds).await });
+    match moocs_result {
+        Some(Ok(())) => info!("agent-browser daemon MOOCs session established"),
+        Some(Err(e)) => {
+            eprintln!(
+                "warning: agent-browser MOOCs login failed ({e}); write 系 (submit/upload/push) と slide/drive 取得は利用できません。\n  再試行: `imoocs auth login`"
+            );
+            return;
+        }
+        None => return, // runtime acquisition failed
+    }
+
+    // Google (SAML) daemon login。slide / drive 系の前提。
+    // MOOCs session 確立済みなので SAML chain は自動進行 + speedbump で auto click。
+    let google_result = run_sync(async { imoocs_browser::commands::auth_google::login_google(&binary).await });
+    match google_result {
+        Some(Ok(())) => info!("agent-browser daemon Google session established"),
+        Some(Err(e)) => {
+            eprintln!(
+                "warning: agent-browser Google login failed ({e}); slide / drive 系は利用できません。\n  再試行: `imoocs auth login-google`"
+            );
+        }
+        None => {}
+    }
+}
+
+/// 既存の tokio runtime 上で `fut` を同期実行する。runtime 取得不能なら `None`。
+fn run_sync<F, T>(fut: F) -> Option<T>
+where
+    F: std::future::Future<Output = T>,
+{
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => Some(tokio::task::block_in_place(|| handle.block_on(fut))),
+        Err(_) => tokio::runtime::Runtime::new().ok().map(|rt| rt.block_on(fut)),
     }
 }
 

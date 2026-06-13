@@ -42,13 +42,16 @@ fn drafts_list_after_confirm_submit_returns_one_summary() {
             "json",
             "assignment",
             "submit",
-            course,
+            "--url",
+            "https://moocs.iniad.org/courses/2026/CS101/L1/P1",
+            "--problem-id",
             problem,
             "--data",
             &data_arg,
         ])
         .assert()
         .success();
+    let _ = course; // course is encoded in --url
 
     // List で 1 件読み戻す
     let assert = imoocs_in(&xdg)
