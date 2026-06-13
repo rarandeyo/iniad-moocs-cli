@@ -1,12 +1,11 @@
-//! Google Slides の pubembed から per-slide PDF を取得する (Phase D-3 戦略 A)。
+//! Google Slides の pubembed から per-slide screenshot を取得する (Phase D-3 戦略 A')。
 //!
-//! 旧 SVG 抽出経路 (slides.rs::extract_svgs + svg2pdf) は色付き背景 / 日本語フォント
-//! のレンダリングが不安定だったため、戦略 A (per-slide navigate + Chrome 印刷 pdf)
-//! に置き換える。
+//! 当初は Chrome 印刷 (`pdf` コマンド) を予定していたが、実機検証で pubembed の
+//! print CSS がビューア本体を隠して黒背景のみの PDF になることが判明した。
+//! screenshot は viewport どおり完全に描画される (日本語フォント込み) ため、
+//! **screenshot (PNG 1280x720) → caller 側で JPEG 変換 + lopdf 埋め込み** に変更した。
 //!
-//! 各 slide は `?slide=id.p<N>` クエリで個別表示できる (Phase 0 で発見)。1 枚ずつ
-//! navigate して `set viewport 1280 720` + `pdf` で 16:9 1 page PDF を保存し、
-//! caller (api::slides) で `lopdf` を使ってマージする。
+//! 各 slide は `?slide=id.p<N>` クエリで個別表示できる (Phase 0 / D-3 実機検証済)。
 
 use std::path::{Path, PathBuf};
 
@@ -19,47 +18,53 @@ use crate::process::AgentBrowser;
 const SESSION_NAME: &str = "imoocs";
 
 /// pubembed のページが描画完了 + Web フォントロード完了したかの判定。
-/// Q13 の指針通り `document.fonts.ready` + `Array.from(document.images).every(complete)`
-/// + svg page の DOM 存在で確認する。
+/// 実機 DOM (D-3 検証): slide 本体の svg は `.punch-viewer-svgpage-svgcontainer` 配下
+/// (svg 自体にクラスは無い)。
 const READY_JS: &str = r#"(function(){
 if (typeof document === 'undefined' || !document.body) return false;
-// punch viewer 自体が描画されているか
-var svg = document.querySelector('svg.punch-viewer-svgpage, svg[viewBox]');
+var svg = document.querySelector('.punch-viewer-svgpage-svgcontainer svg');
 if (!svg) return false;
-// フォントロードと画像ロード完了
 try {
-  var fontsReady = document.fonts && document.fonts.status === 'loaded';
-  if (!fontsReady) return false;
-} catch (e) { /* document.fonts 非対応ブラウザは無視 */ }
+  if (document.fonts && document.fonts.status !== 'loaded') return false;
+} catch (e) { /* document.fonts 非対応は無視 */ }
 var imgs = Array.from(document.images || []);
 if (imgs.length > 0 && !imgs.every(function(i){return i.complete;})) return false;
 return true;
 })()"#;
 
-/// punch viewer の HTML 構造から slide 総枚数を推定する。pubembed が一覧で
-/// 全 slide を render する仕様 (Phase 0 検証では 1 つしか出現しないケースもあるが
-/// `viewerInfo` global を見れば確実) に基づいて多重 fallback を組む。
+/// slide 総枚数を取得する。
+/// 第一候補: `.punch-viewer-svgpage-a11yelement` の aria-label「スライド 1/3: 」
+/// (実機検証済、locale 非依存の `数字/数字` パターンで抜く)。
 const COUNT_JS: &str = r#"(function(){
-// 1. punch viewer の DOM 上の svg 数
-var svgs = document.querySelectorAll('svg.punch-viewer-svgpage');
-if (svgs.length > 0) return svgs.length;
-// 2. viewerInfo global (Google Slides の punch viewer が公開している variable)
-if (typeof window.viewerInfo === 'object' && Array.isArray(window.viewerInfo.slidesIds)) {
-  return window.viewerInfo.slidesIds.length;
-}
-// 3. punch viewer の sidebar / counter UI から count を抜く
-var counter = document.querySelector('.punch-viewer-svgpage-container, [aria-label*="スライド"]');
-if (counter) {
-  var m = (counter.getAttribute('aria-label') || '').match(/(\d+)\s*\/\s*(\d+)/);
+var a11y = document.querySelector('.punch-viewer-svgpage-a11yelement');
+if (a11y) {
+  var m = (a11y.getAttribute('aria-label') || '').match(/(\d+)\s*\/\s*(\d+)/);
   if (m) return parseInt(m[2], 10);
 }
+// fallback 1: aria-label に カウンタを持つ任意の要素
+var els = document.querySelectorAll('[aria-label]');
+for (var i = 0; i < els.length; i++) {
+  var m2 = (els[i].getAttribute('aria-label') || '').match(/^[^\d]*(\d+)\s*\/\s*(\d+)/);
+  if (m2) return parseInt(m2[2], 10);
+}
+// fallback 2: viewerInfo global
+if (typeof window.viewerInfo === 'object' && window.viewerInfo && Array.isArray(window.viewerInfo.slidesIds)) {
+  return window.viewerInfo.slidesIds.length;
+}
 return 0;
+})()"#;
+
+/// screenshot 前にビューアのナビバー (ページャ + Google Slides ロゴ) を隠す。
+/// スライド本体の描画には影響しない。
+const HIDE_NAVBAR_JS: &str = r#"(function(){
+document.querySelectorAll('.punch-viewer-navbar, .punch-viewer-branding').forEach(function(e){ e.style.display = 'none'; });
+return true;
 })()"#;
 
 /// pubembed の embed_url から slide 総枚数を取得する。
 ///
 /// 0 が返った場合は枚数取得失敗 (DOM 構造が変わった可能性) として caller 側で
-/// 単一 slide 扱いにフォールバックすることを想定。
+/// エラーにすることを想定。
 pub async fn count_slides(binary: &Path, embed_url: &str) -> Result<u32, BrowserError> {
     let agent = AgentBrowser::new(binary.to_path_buf(), SESSION_NAME);
     let mut builder = BatchBuilder::new();
@@ -102,10 +107,8 @@ pub async fn count_slides(binary: &Path, embed_url: &str) -> Result<u32, Browser
 }
 
 /// `embed_url` の `?slide=id.p<N>` クエリで指定 slide を navigate し、
-/// `set viewport 1280 720` + `pdf <dest>` で 16:9 1page PDF を保存する。
-///
-/// embed_url に既存の `?` query が含まれていれば置換、無ければ末尾追加。
-pub async fn fetch_slide_pdf(
+/// `set viewport 1280 720` + `screenshot <dest>` で PNG (1280x720) を保存する。
+pub async fn fetch_slide_screenshot(
     binary: &Path,
     embed_url: &str,
     slide_index: u32,
@@ -119,7 +122,8 @@ pub async fn fetch_slide_pdf(
         .open(&target_url)
         .wait_load(LoadKind::DomContentLoaded)
         .wait_fn(READY_JS, 30_000)
-        .pdf(dest)
+        .eval(HIDE_NAVBAR_JS)
+        .push(["screenshot".to_string(), dest.display().to_string()])
         .get_url();
     let json = builder.to_json().map_err(BrowserError::from)?;
     let value: Value = agent.run_raw(&["batch"], Some(json.as_bytes())).await?;
@@ -133,12 +137,12 @@ pub async fn fetch_slide_pdf(
         .unwrap_or_default();
     if final_url.contains("accounts.google.com") {
         return Err(BrowserError::CommandFailed(format!(
-            "fetch_slide_pdf({slide_index}): redirected to Google sign-in"
+            "fetch_slide_screenshot({slide_index}): redirected to Google sign-in"
         )));
     }
     if let Some(failed) = outcomes.iter().find(|o| !o.success) {
         return Err(BrowserError::CommandFailed(format!(
-            "fetch_slide_pdf({slide_index}): step {:?} failed: {}",
+            "fetch_slide_screenshot({slide_index}): step {:?} failed: {}",
             failed.command,
             failed.error.as_deref().unwrap_or("unknown")
         )));
@@ -146,9 +150,9 @@ pub async fn fetch_slide_pdf(
     Ok(())
 }
 
-/// 高レベル: embed_url の全 slide を順次 PDF 化して `dest_dir/page_NNN.pdf` に保存する。
+/// 高レベル: embed_url の全 slide を順次 screenshot して `dest_dir/page_NNN.png` に保存する。
 /// 戻り値は保存順 (= slide 順) の PathBuf 配列。
-pub async fn fetch_slide_pdfs(
+pub async fn fetch_slide_screenshots(
     binary: &Path,
     embed_url: &str,
     dest_dir: &Path,
@@ -162,8 +166,8 @@ pub async fn fetch_slide_pdfs(
     }
     let mut paths = Vec::with_capacity(total as usize);
     for i in 1..=total {
-        let dest = dest_dir.join(format!("page_{i:03}.pdf"));
-        fetch_slide_pdf(binary, embed_url, i, &dest).await?;
+        let dest = dest_dir.join(format!("page_{i:03}.png"));
+        fetch_slide_screenshot(binary, embed_url, i, &dest).await?;
         paths.push(dest);
     }
     Ok(paths)
