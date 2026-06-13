@@ -40,11 +40,7 @@ impl PushAction<'_> {
             (true, true) => "empty".to_string(),
             (false, true) => format!("answers={}", self.answer_pids.len()),
             (true, false) => format!("files={}", self.file_pids.len()),
-            (false, false) => format!(
-                "answers={} files={}",
-                self.answer_pids.len(),
-                self.file_pids.len()
-            ),
+            (false, false) => format!("answers={} files={}", self.answer_pids.len(), self.file_pids.len()),
         };
         format!(
             "Push {course}/{problem}? [{summary}]",
@@ -70,7 +66,11 @@ impl PushAction<'_> {
                 .collect();
             format!("  files:   {}", pids.join(", "))
         };
-        format!("Push target: {course}/{problem}\n{answers}\n{files}", course = self.course, problem = self.problem)
+        format!(
+            "Push target: {course}/{problem}\n{answers}\n{files}",
+            course = self.course,
+            problem = self.problem
+        )
     }
 }
 
@@ -207,11 +207,20 @@ mod tests {
             answer_pids: &answer_pids,
             file_pids: &file_pids,
         };
-        // Phase C-11 で prompt は短縮: 識別子 + answers/files count だけ。
+        // prompt は短縮形: 識別子 + answers/files count だけ。
         let prompt = action.prompt_text();
-        assert!(prompt.contains("CS101/prob-a"), "prompt should contain target: {prompt}");
-        assert!(prompt.contains("answers=2"), "prompt should contain answers count: {prompt}");
-        assert!(prompt.contains("files=1"), "prompt should contain files count: {prompt}");
+        assert!(
+            prompt.contains("CS101/prob-a"),
+            "prompt should contain target: {prompt}"
+        );
+        assert!(
+            prompt.contains("answers=2"),
+            "prompt should contain answers count: {prompt}"
+        );
+        assert!(
+            prompt.contains("files=1"),
+            "prompt should contain files count: {prompt}"
+        );
         // 詳細 (pid 一覧 + ファイル名) は detail_text で stderr に出す。
         let detail = action.detail_text();
         assert!(detail.contains("CS101/prob-a"));

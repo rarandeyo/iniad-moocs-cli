@@ -1,6 +1,6 @@
 //! `imoocs-types`: 中立な共有型のみを持つ薄いクレート。
 //!
-//! Phase A1 の目的:
+//! 目的:
 //! - `imoocs-browser` と `imoocs-core` の間で「循環依存」を作らない
 //! - password / credentials の memory 露出を `secrecy::SecretString` で最小化
 //!
@@ -95,10 +95,7 @@ mod tests {
         let c = Credentials::new("u", "secret-pw");
         let json = serde_json::to_string(&c).unwrap();
         assert!(json.contains("\"u\""));
-        assert!(
-            !json.contains("secret-pw"),
-            "password leaked in JSON: {json}"
-        );
+        assert!(!json.contains("secret-pw"), "password leaked in JSON: {json}");
     }
 
     #[test]

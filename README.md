@@ -33,6 +33,15 @@
    ```
    </details>
 
+   **agent-browser もインストール** (課題提出 / Drive / スライド取得に必須)
+
+   `imoocs` はブラウザ操作を [agent-browser](https://github.com/vercel-labs/agent-browser)
+   (ヘッドレス Chrome) に委譲する。課題の閲覧だけなら無くても動くが、
+   `submit` / `upload` / `push` / `drive` / `slide` 系には必須。
+   ```sh
+   npm install -g agent-browser   # または: cargo install agent-browser --locked
+   ```
+
 2. **MOOCs / Google SSO にログイン**
    ```sh
    imoocs setup
@@ -122,9 +131,9 @@ imoocs auth {login,login-google,logout,status,export}
 imoocs course {list,show}
 imoocs lesson show <courseId> <lessonId> [--page <p>] [--no-assignments] [--no-fetch-slides] [--no-cache]
 imoocs slide fetch <embedUrl>
-imoocs assignment {list,show,submit,upload,push,drafts}  # confirm モードでは submit/upload は stage のみ、push で確定
+imoocs assignment {list,show,submit,upload,push,drafts}  # confirm モードでは submit/upload は stage のみ、push で確定 (送信は agent-browser 経由)
 imoocs assignment drafts {list,show,clear}               # $XDG_STATE_HOME/imoocs/drafts/ の操作
-imoocs drive {list,search,fetch,folders}            # search/list/fetch は SAML cookie で Drive、folders は course-drive-folders.toml を表示
+imoocs drive {list,search,fetch,folders}            # list/search/fetch は agent-browser (Chrome) 経由で Drive、folders は course-drive-folders.toml を表示
 imoocs open <url>                                   # URL 1 本でルーティング
 imoocs reset [--scope auth|config|cache|drafts|all] [--yes] [--dry-run]  # credential / 設定 / cache / draft を一括削除
 imoocs completion {generate,install}                # generate=stdout / install=XDG 標準パスに配置

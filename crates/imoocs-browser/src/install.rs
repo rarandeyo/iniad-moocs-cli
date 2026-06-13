@@ -1,8 +1,8 @@
 //! agent-browser バイナリの PATH 探索。
 //!
-//! `imoocs-cli` 側にも同等の検出ロジックがあるが (Phase A0 で先に実装)、
+//! `imoocs-cli` 側にも同等の検出ロジックがあるが、
 //! `imoocs-core` から呼べる経路として `imoocs-browser` にも置く。
-//! Phase B 以降でこちらに完全集約予定。
+//! いずれこちらに完全集約予定。
 
 use std::env;
 use std::path::PathBuf;

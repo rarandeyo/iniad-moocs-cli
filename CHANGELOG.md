@@ -5,6 +5,47 @@
 
 ## [Unreleased]
 
+## [v0.3.0]
+
+サーバへの書き込みと Google 系の取得を [agent-browser](https://github.com/vercel-labs/agent-browser)
+(ヘッドレス Chrome) 経由に移行した。人間がブラウザを操作するのと同一の経路・同一の動作になる。
+
+### Added
+
+- `imoocs auth login` が agent-browser daemon 側にも MOOCs (Keycloak) + Google (SAML) の
+  セッションを自動確立するようになった。
+- Google セッションの自動回復: daemon が再起動してセッションが消えても、auth-vault の
+  保存済み profile → SAML chain (本人確認ダイアログの自動クリック込み) で自動復活する。
+- `drive fetch` がダウンロードファイルを元のファイル名 (Content-Disposition 由来) で
+  保存するようになった。`<cache>/imoocs/drive/<fileId>/` 配下に 24h TTL でキャッシュ。
+- Drive の E2E テスト (非認証 4 件 + 実 Drive round-trip 3 件) を追加。
+
+### Changed
+
+- **Breaking**: `assignment submit` / `upload` は `--url <課題ページURL>` が必須になった
+  (positional の `COURSE_ID PROBLEM_ID` を削除)。URL 指定により course 一覧の走査が不要に
+  なり、提出が大幅に高速化される。同一ページに複数課題がある場合は `--problem-id` で絞る。
+- **Breaking**: `assignment push` は引数なしで全 draft を一括送信するようになった
+  (`--url` で単一 draft に絞ることも可能)。確認プロンプトも 1 行サマリ + 詳細表示に刷新。
+- **Breaking**: `submit` / `upload` / `push` / `drive list|search|fetch` / `slide fetch` /
+  `auth login-google` は agent-browser のインストールが必要になった
+  (`npm i -g agent-browser` または `cargo install agent-browser --locked`)。
+- `drive list` / `search` は Drive Web UI の DOM から一覧を抽出する方式に変更
+  (旧: 非公式 XHR endpoint + SAPISIDHASH 認証。endpoint の仕様変更で動作しなくなっていた)。
+- `slide fetch` はスライドを 1 枚ずつ Chrome で描画して screenshot → PDF 合成する方式に変更
+  (旧: 埋め込み SVG 抽出。色付き背景や日本語フォントの描画が不安定だった)。
+  Web フォント・画像のロード完了を待つため、描画品質がブラウザ表示と同一になる。
+
+### Removed
+
+- 旧 Drive XHR 経路 (SAPISIDHASH / clients6.googleapis.com) と旧 SVG 抽出経路を削除。
+  依存から `svg2pdf` / `pdf-writer` / `unicode_escape` / `base64` / `mime_guess` を除去。
+
+### Internal
+
+- workspace を `imoocs-types` / `imoocs-browser` / `imoocs-core` / `imoocs-cli` の 4 crate 構成に再編。
+- destructive E2E を新 CLI 形式 (`--url` 必須) に追従、`IMOOCS_E2E_PAGE_URL` env を追加。
+
 ## [v0.2.0]
 
 ### Added
@@ -29,6 +70,7 @@
 
 初回安定リリース。詳細は GitHub Releases を参照。
 
-[Unreleased]: https://github.com/rarandeyo/iniad-moocs-cli/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/rarandeyo/iniad-moocs-cli/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/rarandeyo/iniad-moocs-cli/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/rarandeyo/iniad-moocs-cli/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/rarandeyo/iniad-moocs-cli/releases/tag/v0.1.0

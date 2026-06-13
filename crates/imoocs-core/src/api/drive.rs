@@ -1,4 +1,4 @@
-//! Drive folder/file アクセス (Phase D-2 移行版)。
+//! Drive folder/file アクセス。
 //!
 //! 3 つの entry point:
 //!
@@ -11,7 +11,7 @@
 //!
 //! 旧 reqwest 経路 (clients6.google.com/drive/v2beta/files + SAPISIDHASH 認証) は
 //! Drive Web UI 自体が batchexecute (GWT RPC) に移行したことに加え、SAPISIDHASH の
-//! 401 が頻発するため Phase D-2 で全削除した。
+//! 401 が頻発するため全削除した。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -77,7 +77,7 @@ pub async fn search_drive_folders(_session: &Session, name: &str, exact: bool) -
     })
 }
 
-/// Phase D-2.x: `drive.usercontent.google.com/download` を agent-browser daemon で
+/// `drive.usercontent.google.com/download` を agent-browser daemon で
 /// navigate してダウンロードする。daemon は `AGENT_BROWSER_DOWNLOAD_PATH` を効かせる
 /// ために close → 再起動され、session は auth-vault profile + SAML chain で自動回復
 /// する (imoocs_browser::commands::drive::fetch_drive_file 参照)。
@@ -205,7 +205,7 @@ fn convert_browser_item(i: imoocs_browser::commands::drive::DriveItem) -> DriveI
         name: i.name,
         mime: infer_mime_from_tooltip(&i.tooltip, kind),
         kind,
-        // grid view の別セルから取れるが、現状は省略。Phase D-2.x で必要なら抽出。
+        // grid view の別セルから取れるが、現状は省略。必要なら今後抽出。
         modified_at: None,
     }
 }

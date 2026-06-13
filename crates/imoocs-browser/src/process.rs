@@ -43,9 +43,7 @@ impl AgentBrowser {
     /// 内部 build: `--session-name <name> --json` を頭に置いた `Command` を返す。
     fn base_command(&self) -> Command {
         let mut cmd = Command::new(&self.binary);
-        cmd.arg("--session-name")
-            .arg(&self.session_name)
-            .arg("--json");
+        cmd.arg("--session-name").arg(&self.session_name).arg("--json");
         for (k, v) in &self.envs {
             cmd.env(k, v);
         }
@@ -75,14 +73,10 @@ impl AgentBrowser {
 
     /// stdin から bytes を流し込む形 (`auth save --password-stdin` など)。
     ///
-    /// 仕様 (Phase A1 で確定した安全要件):
+    /// 仕様:
     /// - 書き込み後に `stdin` を明示的に `drop` してパイプを閉じる
     /// - 成功・エラー両経路で `stdin` 自動 drop が走るので、`scopeguard` は不要
-    pub async fn run_with_stdin(
-        &self,
-        args: &[&str],
-        stdin_bytes: Option<&[u8]>,
-    ) -> Result<Value, BrowserError> {
+    pub async fn run_with_stdin(&self, args: &[&str], stdin_bytes: Option<&[u8]>) -> Result<Value, BrowserError> {
         self.run_inner(args, stdin_bytes, true).await
     }
 
@@ -106,10 +100,7 @@ impl AgentBrowser {
         // stdin を書き込む (passwords など)。
         if let Some(bytes) = stdin_bytes {
             if let Some(mut stdin) = child.stdin.take() {
-                stdin
-                    .write_all(bytes)
-                    .await
-                    .map_err(BrowserError::from)?;
+                stdin.write_all(bytes).await.map_err(BrowserError::from)?;
                 // 明示 drop で pipe を閉じる (Drop 時に flush も走るが念のため)
                 drop(stdin);
             }
@@ -140,11 +131,7 @@ impl AgentBrowser {
 
     /// `{success, data, error}` envelope を解釈して `data` フィールドを返す。
     fn dispatch_envelope(value: Value) -> Result<Value, BrowserError> {
-        if value
-            .get("success")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
+        if value.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
             return Ok(value.get("data").cloned().unwrap_or(Value::Null));
         }
         let err_msg = value

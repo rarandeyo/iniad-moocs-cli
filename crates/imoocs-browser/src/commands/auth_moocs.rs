@@ -1,6 +1,6 @@
 //! MOOCs (Keycloak) ログイン — agent-browser auth-vault 経由。
 //!
-//! Phase A2.1 で実装。Phase 0 Q17 で確定したセレクタを使う:
+//! セレクタは実機検証で確定したもの:
 //! - `--url "https://moocs.iniad.org/auth/iniad"` (Keycloak へリダイレクトされる)
 //! - `--username-selector "#username"`
 //! - `--password-selector "#password"`
@@ -22,13 +22,13 @@ use crate::process::AgentBrowser;
 /// agent-browser auth profile の name。imoocs では `moocs` 固定。
 pub const PROFILE_NAME: &str = "moocs";
 
-/// MOOCs ログインの URL とセレクタ (Phase 0 Q17 で確定)。
+/// MOOCs ログインの URL とセレクタ (実機検証で確定)。
 const LOGIN_URL: &str = "https://moocs.iniad.org/auth/iniad";
 const USERNAME_SELECTOR: &str = "#username";
 const PASSWORD_SELECTOR: &str = "#password";
 const SUBMIT_SELECTOR: &str = "#kc-login";
 
-/// 後ログイン確認用 URL とパス (Phase 0 Q1 で確認した挙動と同じ)。
+/// 後ログイン確認用 URL とパス。
 const ACCOUNT_URL: &str = "https://moocs.iniad.org/account";
 const ACCOUNT_PATH: &str = "/account";
 
@@ -62,9 +62,7 @@ async fn save_profile(binary: &Path, creds: &Credentials) -> Result<(), BrowserE
         SUBMIT_SELECTOR,
     ];
     let password_bytes = creds.password().as_bytes().to_vec();
-    let _value: Value = agent
-        .run_with_stdin(&args, Some(&password_bytes))
-        .await?;
+    let _value: Value = agent.run_with_stdin(&args, Some(&password_bytes)).await?;
     // password_bytes は明示的に zeroize する (Vec<u8> なので Drop だけでは消えない)
     let mut zeroize_buf = password_bytes;
     use zeroize::Zeroize;
@@ -111,9 +109,7 @@ pub(crate) async fn persist_session(binary: &Path) -> Result<(), BrowserError> {
     let _ = std::fs::create_dir_all(&sessions_dir);
     let target = sessions_dir.join("imoocs-default.json");
     let agent = AgentBrowser::new(binary.to_path_buf(), "imoocs");
-    let _ = agent
-        .run(&["state", "save", target.to_str().unwrap_or("")])
-        .await;
+    let _ = agent.run(&["state", "save", target.to_str().unwrap_or("")]).await;
     Ok(())
 }
 
@@ -122,10 +118,7 @@ pub async fn is_logged_in_moocs(binary: &Path) -> Result<bool, BrowserError> {
     let agent = AgentBrowser::new(binary.to_path_buf(), "imoocs");
     let _ = agent.run(&["open", ACCOUNT_URL]).await?;
     let value: Value = agent.run(&["get", "url"]).await?;
-    let final_url = value
-        .get("url")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let final_url = value.get("url").and_then(|v| v.as_str()).unwrap_or("");
     Ok(final_url.contains(ACCOUNT_PATH))
 }
 

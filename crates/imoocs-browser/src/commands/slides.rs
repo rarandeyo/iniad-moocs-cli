@@ -1,11 +1,11 @@
-//! Google Slides の pubembed から per-slide screenshot を取得する (Phase D-3 戦略 A')。
+//! Google Slides の pubembed から per-slide screenshot を取得する。
 //!
 //! 当初は Chrome 印刷 (`pdf` コマンド) を予定していたが、実機検証で pubembed の
 //! print CSS がビューア本体を隠して黒背景のみの PDF になることが判明した。
 //! screenshot は viewport どおり完全に描画される (日本語フォント込み) ため、
 //! **screenshot (PNG 1280x720) → caller 側で JPEG 変換 + lopdf 埋め込み** に変更した。
 //!
-//! 各 slide は `?slide=id.p<N>` クエリで個別表示できる (Phase 0 / D-3 実機検証済)。
+//! 各 slide は `?slide=id.p<N>` クエリで個別表示できる (実機検証済)。
 
 use std::path::{Path, PathBuf};
 

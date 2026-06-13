@@ -1,4 +1,4 @@
-//! Google Drive folder listing / search / file fetch via agent-browser (Phase D-2).
+//! Google Drive folder listing / search / file fetch via agent-browser.
 //!
 //! 旧 `clients6.google.com/drive/v2beta/files` の reqwest 経路は SAPISIDHASH
 //! 認証が 401 になりやすく、Drive Web UI 自体も batchexecute (GWT RPC) に
@@ -127,9 +127,7 @@ pub async fn fetch_drive_file(binary: &Path, file_id: &str, dest_dir: &Path) -> 
     let _ = agent.run(&["get", "url"]).await; // daemon を env 付きで先に起動させる
     crate::commands::auth_google::ensure_google_session(binary).await?;
 
-    let url = format!(
-        "https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
-    );
+    let url = format!("https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t");
     let mut builder = BatchBuilder::new();
     // Chrome は navigation がダウンロードに変換されると `open` が
     // net::ERR_ABORTED を返す。実際にはダウンロードは開始されているので、
@@ -203,11 +201,7 @@ async fn navigate_and_extract(binary: &Path, url: &str, what: &str) -> Result<Ve
     }
 }
 
-async fn navigate_and_extract_once(
-    binary: &Path,
-    url: &str,
-    what: &str,
-) -> Result<Vec<DriveItem>, BrowserError> {
+async fn navigate_and_extract_once(binary: &Path, url: &str, what: &str) -> Result<Vec<DriveItem>, BrowserError> {
     let agent = AgentBrowser::new(binary.to_path_buf(), SESSION_NAME);
     let mut builder = BatchBuilder::new();
     builder
@@ -292,6 +286,9 @@ mod tests {
     #[test]
     fn percent_encode_space_and_unicode() {
         assert_eq!(percent_encode("a b"), "a%20b");
-        assert_eq!(percent_encode("[受講生]講義資料"), "%5B%E5%8F%97%E8%AC%9B%E7%94%9F%5D%E8%AC%9B%E7%BE%A9%E8%B3%87%E6%96%99");
+        assert_eq!(
+            percent_encode("[受講生]講義資料"),
+            "%5B%E5%8F%97%E8%AC%9B%E7%94%9F%5D%E8%AC%9B%E7%BE%A9%E8%B3%87%E6%96%99"
+        );
     }
 }

@@ -115,7 +115,7 @@ pub async fn do_login(
             cfg.username = Some(username.clone());
             cfg.save(&paths.config_file())?;
             info!("authenticated as {}", username);
-            // Phase C: write 系 (submit/upload/push) は agent-browser daemon を経由する。
+            // write 系 (submit/upload/push) は agent-browser daemon を経由する。
             // server 側が reqwest と Chrome の session を別物として扱うため、両方で
             // 独立に login しておく。失敗しても read 系は動くので warning に留める。
             establish_agent_browser_session(&username, &creds.password);
@@ -144,10 +144,8 @@ fn establish_agent_browser_session(username: &str, password: &str) {
     };
     let creds = imoocs_types::Credentials::new(username.to_string(), password.to_string());
 
-    // Phase C-7: MOOCs (Keycloak) daemon login。write 系の前提。
-    let moocs_result = run_sync(async {
-        imoocs_browser::commands::auth_moocs::login_moocs(&binary, &creds).await
-    });
+    // MOOCs (Keycloak) daemon login。write 系の前提。
+    let moocs_result = run_sync(async { imoocs_browser::commands::auth_moocs::login_moocs(&binary, &creds).await });
     match moocs_result {
         Some(Ok(())) => info!("agent-browser daemon MOOCs session established"),
         Some(Err(e)) => {
@@ -159,11 +157,9 @@ fn establish_agent_browser_session(username: &str, password: &str) {
         None => return, // runtime acquisition failed
     }
 
-    // Phase D-1: Google (SAML) daemon login。slide / drive 系の前提。
+    // Google (SAML) daemon login。slide / drive 系の前提。
     // MOOCs session 確立済みなので SAML chain は自動進行 + speedbump で auto click。
-    let google_result = run_sync(async {
-        imoocs_browser::commands::auth_google::login_google(&binary).await
-    });
+    let google_result = run_sync(async { imoocs_browser::commands::auth_google::login_google(&binary).await });
     match google_result {
         Some(Ok(())) => info!("agent-browser daemon Google session established"),
         Some(Err(e)) => {

@@ -77,14 +77,9 @@ fn push_in_pty_with_no_staged_draft_exits_4_not_found() {
     let xdg = TempXdg::new();
     xdg.write_config(CONFIG_CONFIRM);
 
-    // Phase C-10: push は引数なしで全 draft 一括送信。draft 0 件なら NOT_FOUND。
-    let session = imoocs_pty_in_with_env(
-        &xdg,
-        &["assignment", "push"],
-        &[("IMOOCS_YEAR", "2026")],
-        5_000,
-    )
-    .expect("spawn pty");
+    // push は引数なしで全 draft 一括送信。draft 0 件なら NOT_FOUND。
+    let session =
+        imoocs_pty_in_with_env(&xdg, &["assignment", "push"], &[("IMOOCS_YEAR", "2026")], 5_000).expect("spawn pty");
 
     // プロンプトは出ずに即終了するはずなので EOF まで待つ。
     let status = session.process.wait().expect("wait child");
@@ -133,15 +128,10 @@ fn push_in_pty_with_n_response_cancels_and_keeps_draft() {
     assert_eq!(count_drafts(), 1, "stage should produce 1 draft");
 
     // PTY で push 起動 (引数なし) → "Push CS101/prob-a?" プロンプトを expect → "n" 送信
-    let mut session = imoocs_pty_in_with_env(
-        &xdg,
-        &["assignment", "push"],
-        &[("IMOOCS_YEAR", "2026")],
-        5_000,
-    )
-    .expect("spawn pty");
+    let mut session =
+        imoocs_pty_in_with_env(&xdg, &["assignment", "push"], &[("IMOOCS_YEAR", "2026")], 5_000).expect("spawn pty");
 
-    // Phase C-11: prompt は短縮されて `Push CS101/prob-a? [answers=1]` 形式。
+    // prompt は短縮形で `Push CS101/prob-a? [answers=1]` 形式。
     // ANSI escape が混じる可能性があるので regex で。
     session.exp_regex(r"Push CS101/prob-a\?").expect("see push prompt");
     session.send_line("n").expect("send n");

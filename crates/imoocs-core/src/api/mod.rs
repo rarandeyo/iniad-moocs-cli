@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use crate::error::{ImoocsError, Result};
 
-/// agent-browser バイナリの場所を解決する。Phase C で write 系が依存する。
+/// agent-browser バイナリの場所を解決する。write 系 / drive / slides が依存する。
 pub(crate) fn agent_binary() -> Result<PathBuf> {
     imoocs_browser::discover_binary().ok_or_else(|| ImoocsError::Auth {
         reason: "agent-browser binary missing".into(),
@@ -41,15 +41,8 @@ pub(crate) fn map_browser_err(err: imoocs_browser::BrowserError) -> ImoocsError 
         },
         E::CommandFailed(msg) => ImoocsError::Api(format!("agent-browser command failed: {msg}")),
         E::Spawn(e) => ImoocsError::Internal(format!("agent-browser spawn error: {e}")),
-        E::NonZeroExit { code, stderr } => {
-            ImoocsError::Internal(format!("agent-browser exited {code:?}: {stderr}"))
-        }
+        E::NonZeroExit { code, stderr } => ImoocsError::Internal(format!("agent-browser exited {code:?}: {stderr}")),
         E::Json(e) => ImoocsError::Internal(format!("agent-browser JSON parse: {e}")),
         E::Internal(msg) => ImoocsError::Internal(msg),
     }
 }
-
-// Phase C-5 で実装した `collect_session_cookies` (reqwest jar → agent-browser inject)
-// は Phase C-7 で `auth login` が daemon 側 session も確立する構成に変わったため不要に
-// なった。同じ理由で `imoocs_browser::commands::assignment_write::InjectableCookie` /
-// `inject_cookies` も削除済。

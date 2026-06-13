@@ -1,6 +1,6 @@
 //! 課題答案送信 (write 系) を agent-browser navigate + form fill + click で実現するラッパ。
 //!
-//! Phase C で導入。元計画 `docs/agent-browser-migration-notes.md` の Q3 で確定した
+//! `docs/agent-browser-migration-notes.md` の Q3 で確定した
 //! セレクタ (`.problem-container[data-urlprefix]` / `button.start-answer` /
 //! `button.submit-answer` / `button.file-trigger-btn` / `<textarea name="<pid>">`) に
 //! 依存する。
@@ -9,7 +9,7 @@
 //! - submit/upload は destructive な操作なので、呼び出し側で `confirm` モードと
 //!   一致するよう制御する
 //! - Q6 (提出後 toast) は実機で確定するまで `wait_fn` を generic セレクタにしておき、
-//!   Phase C-6 で確定後にしぼる
+//!   実機で観察して確定後にしぼる
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -24,7 +24,7 @@ use crate::process::AgentBrowser;
 /// `button.submit-answer` を click する。
 ///
 /// 前提として **`imoocs auth login` で agent-browser daemon にも MOOCs session が
-/// 確立されている** こと (Phase C-7)。reqwest 側 cookies と daemon 側 cookies は
+/// 確立されている** こと。reqwest 側 cookies と daemon 側 cookies は
 /// サーバ的に別の session として扱われるので、reqwest 側 cookie を inject しても
 /// 意味がない (むしろ daemon の valid session を上書きしてしまう)。
 ///
@@ -87,7 +87,7 @@ pub async fn upload_file(
     pid: &str,
     file_path: &Path,
 ) -> Result<(), BrowserError> {
-    // `submit_answer` と同じ前提: daemon Chrome に MOOCs session 確立済 (Phase C-7)。
+    // `submit_answer` と同じ前提: daemon Chrome に MOOCs session 確立済。
     let agent = AgentBrowser::new(binary.to_path_buf(), "imoocs");
 
     let mut builder = BatchBuilder::new();
@@ -145,9 +145,7 @@ fn wait_xhr_idle_js() -> String {
 
 async fn run_batch(agent: &AgentBrowser, builder: &BatchBuilder, op: &str) -> Result<(), BrowserError> {
     let json = builder.to_json().map_err(BrowserError::from)?;
-    let value: Value = agent
-        .run_raw(&["batch"], Some(json.as_bytes()))
-        .await?;
+    let value: Value = agent.run_raw(&["batch"], Some(json.as_bytes())).await?;
     let outcomes: BatchResponse = serde_json::from_value(value)?;
     for (i, o) in outcomes.iter().enumerate() {
         if !o.success {

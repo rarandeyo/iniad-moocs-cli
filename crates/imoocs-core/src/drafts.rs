@@ -24,7 +24,7 @@ pub struct Draft {
     pub year: Year,
     pub course_id: String,
     pub problem_id: String,
-    /// 課題が載っている lesson page の URL。Phase C-10 で追加。
+    /// 課題が載っている lesson page の URL。
     /// `push` が agent-browser に渡す navigate 先として使う。
     /// 旧形式の draft では空文字列 (= `#[serde(default)]`)、その場合は
     /// `resolve_page_url` の list フォールバックに委ねる。

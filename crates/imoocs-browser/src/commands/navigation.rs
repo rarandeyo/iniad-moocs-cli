@@ -1,4 +1,4 @@
-//! ページ navigate + HTML 取得の高レベルヘルパ (Phase B+)。
+//! ページ navigate + HTML 取得の高レベルヘルパ。
 //!
 //! 旧 `reqwest::get(url).text()` 相当を `agent-browser` 経由で実現する。
 //! `document.documentElement.outerHTML` を `eval` で取れば完全な HTML (`<html>` 〜
@@ -42,13 +42,10 @@ pub async fn fetch_page(binary: &Path, url: &str) -> Result<PageFetch, BrowserEr
     let json = builder.to_json().map_err(BrowserError::from)?;
     // `batch` は envelope 無しで配列を直接出すので `run_raw` を使う
     // (`run_with_stdin` は envelope dispatch を行うため使えない)。
-    let value: Value = agent
-        .run_raw(&["batch"], Some(json.as_bytes()))
-        .await?;
+    let value: Value = agent.run_raw(&["batch"], Some(json.as_bytes())).await?;
 
     // batch の結果は配列。`commands::auth_moocs` 経由のテストで shape 確認済。
-    let outcomes: BatchResponse = serde_json::from_value(value.clone())
-        .or_else(|_| serde_json::from_value(value))?;
+    let outcomes: BatchResponse = serde_json::from_value(value.clone()).or_else(|_| serde_json::from_value(value))?;
     if let Some(first_err) = outcomes.iter().find(|o| !o.success) {
         return Err(BrowserError::CommandFailed(format!(
             "fetch_page: command {:?} failed: {}",

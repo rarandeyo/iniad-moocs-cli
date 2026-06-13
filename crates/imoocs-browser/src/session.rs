@@ -11,7 +11,7 @@ use crate::snapshot::Snapshot;
 
 /// `--session-name imoocs` で固定された agent-browser セッション。
 ///
-/// Phase A1 では最小 API のみ。Phase A2 で auth / Phase B で navigate などを追加する。
+/// 必要になった操作から順に追加する最小 API。
 #[derive(Debug, Clone)]
 pub struct BrowserSession {
     agent: AgentBrowser,
@@ -41,11 +41,7 @@ impl BrowserSession {
 impl BrowserOps for BrowserSession {
     async fn navigate(&self, url: &str) -> Result<String, BrowserError> {
         let value: Value = self.agent.run(&["open", url]).await?;
-        Ok(value
-            .get("url")
-            .and_then(|v| v.as_str())
-            .unwrap_or(url)
-            .to_string())
+        Ok(value.get("url").and_then(|v| v.as_str()).unwrap_or(url).to_string())
     }
 
     async fn current_url(&self) -> Result<String, BrowserError> {

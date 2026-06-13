@@ -1,7 +1,7 @@
 //! `api/drive.rs` の単体テスト。本体ファイル肥大化を避けるため #[path] で
 //! 物理ファイルを分離 (本体の `mod tests;` 宣言から参照)。
 //!
-//! Phase D-2 で reqwest XHR 経路を全削除し、agent-browser DOM scrape に置換した。
+//! reqwest XHR 経路は削除済みで、agent-browser DOM scrape に置換されている。
 //! 旧 SAPISIDHASH / XHR JSON parse / HTTP error classification のテストは
 //! 一緒に削除済み。残るは ID 形式バリデーションと MIME 推定の単体テスト。
 

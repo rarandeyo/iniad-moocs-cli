@@ -1,6 +1,6 @@
 //! `imoocs-browser`: agent-browser CLI を子プロセスとして spawn するラッパ。
 //!
-//! Phase A1 のスコープ:
+//! 提供するもの:
 //! - `AgentBrowser` (薄い process spawner)
 //! - `BatchBuilder` (batch --json のコマンド列を組み立てる)
 //! - `BrowserSession` (`--session-name imoocs` 固定のセッション抽象)

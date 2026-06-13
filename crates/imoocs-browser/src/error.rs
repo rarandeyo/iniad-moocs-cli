@@ -5,7 +5,7 @@ use thiserror::Error;
 /// `imoocs-browser` 内で発生するエラー。
 ///
 /// `imoocs-core` への変換は呼び出し側 (imoocs-core::auth など) が
-/// `From<BrowserError> for ImoocsError` で行う想定 (Phase A2)。
+/// `From<BrowserError> for ImoocsError` で行う想定。
 #[derive(Debug, Error)]
 pub enum BrowserError {
     /// agent-browser バイナリが PATH 上に無い (`imoocs setup` 案内)

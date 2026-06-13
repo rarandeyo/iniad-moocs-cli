@@ -8,7 +8,7 @@ use crate::snapshot::Snapshot;
 
 /// テスト容易性のための抽象。production は `BrowserSession`、test は `FakeBrowserSession`。
 ///
-/// Phase A1 では最小 API のみ。Phase B/C/D で必要に応じて拡張。
+/// 必要になった操作から順に追加する最小 API。
 #[async_trait]
 pub trait BrowserOps: Send + Sync + std::fmt::Debug {
     /// `agent-browser open <url>` 相当。返り値の `url` は最終リダイレクト先。
@@ -75,9 +75,9 @@ impl BrowserOps for FakeBrowserSession {
 
     async fn snapshot_interactive(&self, _scope: Option<&str>) -> Result<Snapshot, BrowserError> {
         let s = self.state.lock().unwrap();
-        s.snapshot_response.clone().ok_or_else(|| {
-            BrowserError::Internal("FakeBrowserSession: no snapshot fixture set".into())
-        })
+        s.snapshot_response
+            .clone()
+            .ok_or_else(|| BrowserError::Internal("FakeBrowserSession: no snapshot fixture set".into()))
     }
 
     async fn run_batch(&self, _batch_json: &str) -> Result<BatchResponse, BrowserError> {

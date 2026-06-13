@@ -5,7 +5,6 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use clap::{Subcommand, ValueEnum};
-use indicatif::{ProgressBar, ProgressStyle};
 use imoocs_core::{
     api,
     config::Config,
@@ -17,6 +16,7 @@ use imoocs_core::{
     session::Session,
     ImoocsError,
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use serde_json::{json, Value};
 
 use crate::cli::GlobalArgs;
@@ -85,7 +85,7 @@ pub enum AssignmentCommand {
     /// (PUT /answers, `force=true`)、`"confirm"` ではローカル draft に stage
     /// だけ行い、確定は `imoocs assignment push` が担う。
     ///
-    /// `--url` は必須 (Phase C-10): 課題ページ URL があれば lesson/page を解決する
+    /// `--url` は必須: 課題ページ URL があれば lesson/page を解決する
     /// ための 15 秒の course-list 走査を skip できる。同じページに課題が複数あれば
     /// `--problem-id` で 1 つに絞る。
     Submit {
@@ -103,7 +103,7 @@ pub enum AssignmentCommand {
     /// (POST /file/<pid>?force=true)、`confirm` では draft の
     /// `files[pid]` に絶対パスを stage する。
     ///
-    /// `--url` は必須 (Phase C-10)。
+    /// `--url` は必須。
     Upload {
         /// 課題ページ URL。
         #[arg(long)]
@@ -123,7 +123,7 @@ pub enum AssignmentCommand {
     /// 順次叩き、全部成功したら draft を削除する。途中失敗は draft を残し
     /// API_ERROR / NETWORK_ERROR で止める (再実行で resume できる)。
     ///
-    /// Phase C-10: デフォルトは **stage 済みの全 draft を一括送信**。
+    /// デフォルトは **stage 済みの全 draft を一括送信**。
     /// `--url` を渡すと該当 draft 1 つだけ送信する。
     Push {
         /// 特定 draft の課題ページ URL。省略すると全 draft を順次送信する。
@@ -198,7 +198,8 @@ pub async fn run(global: &GlobalArgs, cmd: AssignmentCommand) -> Result<ExitCode
             lang,
             url,
         } => {
-            let (key, _page_url) = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await {
+            let (key, _page_url) = match resolve_key(&session, global.year, course_id, problem_id, url.as_deref()).await
+            {
                 Ok(k) => k,
                 Err(e) => return Ok(emit_err(e)),
             };
@@ -285,7 +286,7 @@ async fn run_submit(
             };
             draft.answers = parsed;
             draft.answers_staged = true;
-            // Phase C-10: push が agent-browser に渡す navigate 先として保存。
+            // push が agent-browser に渡す navigate 先として保存。
             if let Some(ref u) = page_url_hint {
                 draft.page_url = u.clone();
             }
@@ -348,11 +349,7 @@ async fn run_upload(
                     Err(e) => return Ok(emit_err(e)),
                 },
             };
-            let filename = file
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("file")
-                .to_string();
+            let filename = file.file_name().and_then(|s| s.to_str()).unwrap_or("file").to_string();
             let spinner = make_spinner(format!(
                 "Uploading {}/{} {pid} ({filename})",
                 key.course_id, key.problem_id
@@ -376,10 +373,7 @@ async fn run_upload(
                     Ok(ExitCode::from(0))
                 }
                 Err(e) => {
-                    spinner.abandon_with_message(format!(
-                        "✗ {}/{} {pid} upload failed",
-                        key.course_id, key.problem_id
-                    ));
+                    spinner.abandon_with_message(format!("✗ {}/{} {pid} upload failed", key.course_id, key.problem_id));
                     Ok(emit_err(e))
                 }
             }
@@ -400,7 +394,7 @@ async fn run_upload(
                 Err(e) => return Ok(emit_err(e)),
             };
             draft.files.insert(pid.clone(), abs_file);
-            // Phase C-10: push が agent-browser に渡す navigate 先として保存。
+            // push が agent-browser に渡す navigate 先として保存。
             if let Some(ref u) = page_url_hint {
                 draft.page_url = u.clone();
             }
@@ -418,14 +412,17 @@ async fn run_upload(
             let course = key.course_id.clone();
             let problem = key.problem_id.clone();
             output::emit_success_text(result, global.format, move |r| {
-                format!("✓ {course}/{problem} staged {} — `imoocs assignment push` で確定", r.pid)
+                format!(
+                    "✓ {course}/{problem} staged {} — `imoocs assignment push` で確定",
+                    r.pid
+                )
             });
             Ok(ExitCode::from(0))
         }
     }
 }
 
-/// Phase C-10: `--url` で 1 つだけ送信、引数なしで **全 draft 一括送信**。
+/// `--url` で 1 つだけ送信、引数なしで **全 draft 一括送信**。
 async fn run_push(session: &Session, global: &GlobalArgs, url: Option<String>) -> Result<ExitCode> {
     let cfg = match Config::load(&session.paths.config_file()) {
         Ok(c) => c,
@@ -443,11 +440,10 @@ async fn run_push(session: &Session, global: &GlobalArgs, url: Option<String>) -
     // 対象 draft を決定する。`--url` 指定なら該当 1 件、無しなら全件。
     let target_keys: Vec<AssignmentKey> = match url {
         Some(u) => {
-            let (key, _hint) =
-                match resolve_key(session, global.year, None, None, Some(u.as_str())).await {
-                    Ok(k) => k,
-                    Err(e) => return Ok(emit_err(e)),
-                };
+            let (key, _hint) = match resolve_key(session, global.year, None, None, Some(u.as_str())).await {
+                Ok(k) => k,
+                Err(e) => return Ok(emit_err(e)),
+            };
             vec![key]
         }
         None => match Draft::list(&drafts_dir) {
@@ -537,7 +533,7 @@ async fn push_one_draft(
     };
     confirm::resolve_push_gate(cfg, &action)?;
 
-    // Phase C-10: draft.page_url が保存されていればそれを使う (= list skip)。
+    // draft.page_url が保存されていればそれを使う (= list skip)。
     // 旧形式の draft で空文字列なら resolve_page_url に fallback (15s)。
     let page_url = if draft.page_url.is_empty() {
         resolve_page_url(session, key)
@@ -619,7 +615,8 @@ async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) 
             problem_id,
             url,
         } => {
-            let (key, _page_url) = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
+            let (key, _page_url) = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await
+            {
                 Ok(k) => k,
                 Err(e) => return Ok(emit_err(e)),
             };
@@ -667,11 +664,9 @@ async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) 
                         }
                     }
                 }
-                output::emit_success_text(
-                    json!({ "cleared": "all", "removed": removed }),
-                    global.format,
-                    |_| format!("✓ Cleared {removed} draft(s)"),
-                );
+                output::emit_success_text(json!({ "cleared": "all", "removed": removed }), global.format, |_| {
+                    format!("✓ Cleared {removed} draft(s)")
+                });
                 Ok(ExitCode::from(0))
             } else {
                 // clap の Option<String> 4 つをそのまま resolve_key に渡すと
@@ -682,10 +677,11 @@ async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) 
                             .into(),
                     )));
                 }
-                let (key, _page_url) = match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
-                    Ok(k) => k,
-                    Err(e) => return Ok(emit_err(e)),
-                };
+                let (key, _page_url) =
+                    match resolve_key(session, global.year, course_id, problem_id, url.as_deref()).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(emit_err(e)),
+                    };
                 match Draft::remove(&drafts_dir, &key) {
                     Ok(existed) => {
                         let course = key.course_id.clone();
@@ -717,17 +713,14 @@ async fn run_drafts(session: &Session, global: &GlobalArgs, cmd: DraftsCommand) 
 /// TTY でない場合は indicatif が自動で no-op になる。
 fn make_spinner(message: String) -> ProgressBar {
     let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::with_template("{spinner:.cyan} {msg}")
-            .unwrap_or(ProgressStyle::default_spinner()),
-    );
+    pb.set_style(ProgressStyle::with_template("{spinner:.cyan} {msg}").unwrap_or(ProgressStyle::default_spinner()));
     pb.enable_steady_tick(std::time::Duration::from_millis(100));
     pb.set_message(message);
     pb
 }
 
 fn push_hint(_course: &str, _problem: &str) -> String {
-    // Phase C-10: push は引数なしで全 draft 一括送信。`--url` で個別指定。
+    // push は引数なしで全 draft 一括送信。`--url` で個別指定。
     "Draft staged locally. Run `imoocs assignment push` from your TTY to finalise.".into()
 }
 
@@ -755,7 +748,7 @@ fn decorate_push_err(err: ImoocsError, draft_path: &Path) -> ImoocsError {
 /// positional の `course_id` / `problem_id` または `--url` から
 /// [`AssignmentKey`] と (URL 経路の場合) 課題ページ URL を解決する。
 ///
-/// `page_url` を返すのは Phase C-8 最適化のため: write 系 (`put_answers` /
+/// `page_url` を返すのは高速化のため: write 系 (`put_answers` /
 /// `post_file`) が agent-browser navigate 先として使う。URL 経路 (= ユーザが
 /// `--url` で lesson/page を渡した) では既に lesson_id/page_id が確定するので
 /// 直接組み立てて `Some` で返し、`list_course_assignments` (15s) を skip できる。
@@ -797,9 +790,7 @@ async fn resolve_key(
                 course_id: course_id.clone(),
                 problem_id: pid,
             };
-            let page_url = format!(
-                "https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{page_id_str}"
-            );
+            let page_url = format!("https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{page_id_str}");
             return Ok((key, Some(page_url)));
         }
         // 自動推定経路: page を fetch して `.problem-container` の id を読む。
@@ -821,9 +812,7 @@ async fn resolve_key(
                 course_id: course_id.clone(),
                 problem_id: pid,
             };
-            let page_url = format!(
-                "https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{resolved_page_id}"
-            );
+            let page_url = format!("https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{resolved_page_id}");
             return Ok((key, Some(page_url)));
         }
         match problems.len() {
@@ -836,9 +825,8 @@ async fn resolve_key(
                     course_id: course_id.clone(),
                     problem_id: problems.into_iter().next().unwrap(),
                 };
-                let page_url = format!(
-                    "https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{resolved_page_id}"
-                );
+                let page_url =
+                    format!("https://moocs.iniad.org/courses/{year}/{course_id}/{lesson_id}/{resolved_page_id}");
                 Ok((key, Some(page_url)))
             }
             n => Err(ImoocsError::Validation(format!(
@@ -860,7 +848,7 @@ async fn resolve_key(
     }
 }
 
-/// Phase C: write 系 (`put_answers` / `post_file`) は agent-browser navigate に
+/// write 系 (`put_answers` / `post_file`) は agent-browser navigate に
 /// 課題ページ URL が必須。`list_course_assignments` で逆引きして lesson_id + page_id
 /// を埋め、`/courses/<year>/<course>/<lesson>/<page>` を返す。
 ///

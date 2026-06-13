@@ -1,6 +1,6 @@
 //! Google SSO (SAML 経由) ログイン — agent-browser ヘッドレス + speedbump 自動 click。
 //!
-//! Phase 0 で実機検証で確定したフロー:
+//! 実機検証で確定したフロー:
 //! 1. `https://accounts.google.com/samlredirect?domain=iniad.org` を navigate
 //! 2. SAML chain は ACS まで auto-submit form で自動進行
 //! 3. `accounts.google.com/speedbump/samlconfirmaccount` に着地 (初回本人確認ダイアログ)
@@ -34,7 +34,9 @@ pub async fn login_google(binary: &Path) -> Result<(), BrowserError> {
 
     // Step 1: SAML chain 開始
     agent.run(&["open", SAML_REDIRECT_URL]).await?;
-    agent.run(&["wait", "--load", "networkidle", "--timeout", "30000"]).await?;
+    agent
+        .run(&["wait", "--load", "networkidle", "--timeout", "30000"])
+        .await?;
 
     // Step 2: 現在 URL を確認
     let url = current_url(&agent).await?;
@@ -44,13 +46,11 @@ pub async fn login_google(binary: &Path) -> Result<(), BrowserError> {
     if url.contains(SPEEDBUMP_FRAGMENT) {
         tracing::info!(target: "imoocs_browser::auth_google", "speedbump detected, clicking 続行");
         let snap: Snapshot = agent.run_json(&["snapshot", "-i"]).await?;
-        let (ref_id, _) = snap
-            .find_by_name_contains(CONTINUE_BUTTON_NAME)
-            .ok_or_else(|| {
-                BrowserError::CommandFailed(format!(
-                    "speedbump page does not have a `{CONTINUE_BUTTON_NAME}` button"
-                ))
-            })?;
+        let (ref_id, _) = snap.find_by_name_contains(CONTINUE_BUTTON_NAME).ok_or_else(|| {
+            BrowserError::CommandFailed(format!(
+                "speedbump page does not have a `{CONTINUE_BUTTON_NAME}` button"
+            ))
+        })?;
         let token = format!("@{ref_id}");
         agent.run(&["click", &token]).await?;
         agent
@@ -63,9 +63,7 @@ pub async fn login_google(binary: &Path) -> Result<(), BrowserError> {
     if !final_url.contains(MYACCOUNT_DOMAIN) {
         // challenge or 2FA に飛んでいる可能性
         if final_url.contains("challenge") || final_url.contains("signin/v2") {
-            return Err(BrowserError::ChallengeRequired {
-                current_url: final_url,
-            });
+            return Err(BrowserError::ChallengeRequired { current_url: final_url });
         }
         return Err(BrowserError::CommandFailed(format!(
             "Google SAML did not complete, ended at {final_url}"
@@ -89,7 +87,7 @@ pub async fn is_logged_in_google(binary: &Path) -> Result<bool, BrowserError> {
 /// Google session を保証する。切れていたら自動回復を試みる。
 ///
 /// daemon が再起動すると Google session は cookie restore では復活しない
-/// (Google 側の device binding。Phase D-2.x 実機検証で確定)。回復チェーン:
+/// (Google 側の device binding。実機検証で確定)。回復チェーン:
 /// 1. `myaccount.google.com` 到達確認 → 生きていれば即 return
 /// 2. MOOCs (Keycloak) session が切れていたら auth-vault の `moocs` profile で
 ///    daemon 単独再ログイン (credentials 不要)

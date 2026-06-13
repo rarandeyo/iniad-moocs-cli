@@ -1,4 +1,4 @@
-//! Google Slides の pubembed を取得して 1 つの PDF にマージする (Phase D-3 戦略 A')。
+//! Google Slides の pubembed を取得して 1 つの PDF にマージする。
 //!
 //! 旧 SVG 抽出経路 (`SVG_ESCAPED_RE` + svg2pdf) は色付き背景 / 日本語フォントの
 //! レンダリングが不安定だったため削除。Chrome 印刷 (`pdf` コマンド) も pubembed の

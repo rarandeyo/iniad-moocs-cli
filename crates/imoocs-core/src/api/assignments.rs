@@ -74,7 +74,7 @@ fn data_urlprefix(key: &AssignmentKey) -> String {
     format!("/assignments/{}/{}/{}", key.year, key.course_id, key.problem_id)
 }
 
-/// Phase C: 課題ページに navigate して textarea を fill、`button.submit-answer` を click。
+/// 課題ページに navigate して textarea を fill、`button.submit-answer` を click。
 ///
 /// `page_url`: 課題が載っている lesson page の URL (例 `.../courses/2026/INI301/AI-s01/09`)。
 /// `data` の値は agent-browser navigate で扱うため文字列化する (`String` → そのまま、
@@ -95,7 +95,7 @@ pub async fn put_answers(
             Value::Number(n) => Ok((k, n.to_string())),
             Value::Null => Ok((k, String::new())),
             other => Err(ImoocsError::Validation(format!(
-                "pid `{k}` の値 {other} は textarea/text 答案にできません (Phase C 初版は配列/object 未対応)"
+                "pid `{k}` の値 {other} は textarea/text 答案にできません"
             ))),
         })
         .collect::<Result<HashMap<String, String>>>()?;
@@ -117,9 +117,9 @@ pub async fn put_answers(
     })
 }
 
-/// Phase C: 課題ページに navigate してファイルを `<input type=file name=<pid>>` に
+/// 課題ページに navigate してファイルを `<input type=file name=<pid>>` に
 /// upload、`button.submit-answer` を click。`force` は agent-browser flow では使わない
-/// (ブラウザの確認 dialog は内部 JS が auto-accept する想定。Phase C-6 で観察)。
+/// (ブラウザの確認 dialog は内部 JS が auto-accept する想定。実機で観察済)。
 pub async fn post_file(
     _session: &Session,
     key: &AssignmentKey,
@@ -202,7 +202,7 @@ pub async fn get_assignment_detail(session: &Session, key: &AssignmentKey, lang:
     })
 }
 
-// Phase C で write 系を agent-browser navigate に置き換えたため、CSRF token は
+// write 系は agent-browser navigate 経由のため、CSRF token は
 // 不要になった (MOOCs JS が `meta[name=csrf-token]` を自動付与する)。
 // もし将来 reqwest write を復活させるなら HEAD コミットの `ensure_csrf` /
 // `refresh_csrf` を参照する。

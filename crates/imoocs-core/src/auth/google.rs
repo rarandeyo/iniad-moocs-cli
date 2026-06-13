@@ -1,6 +1,6 @@
 //! Google Workspace SSO (SAML 経由) login — agent-browser daemon に委譲する。
 //!
-//! Phase D-1: 旧 reqwest SAML 6段 chain は削除。Chrome daemon が同じ
+//! 旧 reqwest SAML 6段 chain は削除。Chrome daemon が同じ
 //! `--session-name imoocs` を共有しているので、MOOCs 側 Keycloak セッションが
 //! 確立済みなら SAML chain が auto-submit form で自動進行し、speedbump
 //! (本人確認ダイアログ) は browser 側で自動 click される。
