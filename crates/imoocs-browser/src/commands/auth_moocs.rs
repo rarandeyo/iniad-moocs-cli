@@ -73,7 +73,11 @@ async fn save_profile(binary: &Path, creds: &Credentials) -> Result<(), BrowserE
 }
 
 /// `agent-browser auth login moocs` で実ログインを実行する。
-async fn login_with_profile(binary: &Path) -> Result<(), BrowserError> {
+///
+/// auth-vault に profile が保存済みなら credentials 不要で daemon 単独で再ログイン
+/// できる (daemon 再起動で session が全損したときの回復経路として `auth_google::
+/// ensure_google_session` からも使う)。
+pub(crate) async fn login_with_profile(binary: &Path) -> Result<(), BrowserError> {
     let agent = AgentBrowser::new(binary.to_path_buf(), "imoocs");
     let _value: Value = agent.run(&["auth", "login", PROFILE_NAME]).await?;
     Ok(())

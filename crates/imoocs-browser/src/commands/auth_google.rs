@@ -86,6 +86,26 @@ pub async fn is_logged_in_google(binary: &Path) -> Result<bool, BrowserError> {
     Ok(url.contains(MYACCOUNT_DOMAIN))
 }
 
+/// Google session を保証する。切れていたら自動回復を試みる。
+///
+/// daemon が再起動すると Google session は cookie restore では復活しない
+/// (Google 側の device binding。Phase D-2.x 実機検証で確定)。回復チェーン:
+/// 1. `myaccount.google.com` 到達確認 → 生きていれば即 return
+/// 2. MOOCs (Keycloak) session が切れていたら auth-vault の `moocs` profile で
+///    daemon 単独再ログイン (credentials 不要)
+/// 3. SAML chain (`login_google`) で Google session を再確立 (speedbump auto-click 込み)
+pub async fn ensure_google_session(binary: &Path) -> Result<(), BrowserError> {
+    if is_logged_in_google(binary).await? {
+        return Ok(());
+    }
+    tracing::info!(target: "imoocs_browser::auth_google", "Google session expired; attempting recovery");
+    if !crate::commands::auth_moocs::is_logged_in_moocs(binary).await? {
+        tracing::info!(target: "imoocs_browser::auth_google", "MOOCs session also expired; re-login via auth-vault profile");
+        crate::commands::auth_moocs::login_with_profile(binary).await?;
+    }
+    login_google(binary).await
+}
+
 async fn current_url(agent: &AgentBrowser) -> Result<String, BrowserError> {
     let value: Value = agent.run(&["get", "url"]).await?;
     Ok(value

@@ -98,20 +98,38 @@ pub async fn search_drive(binary: &Path, query: &str) -> Result<Vec<DriveItem>, 
 }
 
 /// Drive ファイルを `drive.usercontent.google.com/download` 経由でダウンロードして
-/// `dest` に保存する。`confirm=t` を仕込んでいるので 25MB 超ファイルの virus-scan
+/// `dest_dir` に保存する。`confirm=t` を仕込んでいるので 25MB 超ファイルの virus-scan
 /// interstitial も回避できる。
 ///
-/// agent-browser daemon の挙動:
-/// - `open <download URL>` で navigate するとブラウザは「ダウンロード」イベントを発火
-/// - `wait --download <path>` でダウンロード完了を待ち、ファイルを `path` にコピー
+/// 実装の制約 (D-2.x 実機検証で確定):
+/// - daemon Chrome は download をデフォルト directory (`~/Downloads`) に保存し、
+///   `wait --download <path>` の path コピーは機能しない (0.21.2)
+/// - download directory は `AGENT_BROWSER_DOWNLOAD_PATH` で **daemon 起動時にのみ** 指定可能
+/// - daemon を再起動すると Google session は cookie restore では復活しない
 ///
-/// 戻り値は実際に保存された path (dest と同じ)。
-pub async fn fetch_drive_file(binary: &Path, file_id: &str, dest: &Path) -> Result<PathBuf, BrowserError> {
+/// したがって: daemon を close → env 付きで再起動 → session を自動回復
+/// (`ensure_google_session`) → download。`dest_dir` に元の filename で落ちる。
+///
+/// 戻り値は実際に保存された path (Content-Disposition 由来の filename 付き)。
+pub async fn fetch_drive_file(binary: &Path, file_id: &str, dest_dir: &Path) -> Result<PathBuf, BrowserError> {
+    std::fs::create_dir_all(dest_dir).map_err(|e| BrowserError::Internal(format!("mkdir: {e}")))?;
+
+    // 既存 daemon を落とす (download path は起動時にしか効かないため)。
+    let plain = AgentBrowser::new(binary.to_path_buf(), SESSION_NAME);
+    let _ = plain.run(&["close"]).await;
+
+    // env 付き agent の最初のコマンドで daemon が AGENT_BROWSER_DOWNLOAD_PATH 込みで起動する。
+    let agent = AgentBrowser::new(binary.to_path_buf(), SESSION_NAME)
+        .with_env("AGENT_BROWSER_DOWNLOAD_PATH", dest_dir.to_string_lossy());
+
+    // daemon 再起動で session 全損 → auth-vault profile + SAML chain で回復。
+    // (この内部の spawn は env なしだが、daemon は既に env 付きで起動済みなので接続するだけ)
+    let _ = agent.run(&["get", "url"]).await; // daemon を env 付きで先に起動させる
+    crate::commands::auth_google::ensure_google_session(binary).await?;
+
     let url = format!(
         "https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t"
     );
-    let dest_str = dest.to_string_lossy().into_owned();
-    let agent = AgentBrowser::new(binary.to_path_buf(), SESSION_NAME);
     let mut builder = BatchBuilder::new();
     // Chrome は navigation がダウンロードに変換されると `open` が
     // net::ERR_ABORTED を返す。実際にはダウンロードは開始されているので、
@@ -119,11 +137,11 @@ pub async fn fetch_drive_file(binary: &Path, file_id: &str, dest: &Path) -> Resu
     builder.open(&url).push([
         "wait".to_string(),
         "--download".to_string(),
-        dest_str.clone(),
         "--timeout".to_string(),
         "120000".to_string(),
     ]);
     let json = builder.to_json().map_err(BrowserError::from)?;
+    let before = list_files(dest_dir);
     let value: Value = agent.run_raw(&["batch"], Some(json.as_bytes())).await?;
     let outcomes: BatchResponse = serde_json::from_value(value)?;
 
@@ -136,12 +154,60 @@ pub async fn fetch_drive_file(binary: &Path, file_id: &str, dest: &Path) -> Resu
             wait_outcome.error.as_deref().unwrap_or("unknown")
         )));
     }
-    Ok(dest.to_path_buf())
+
+    // dest_dir に新しく現れたファイルが download 結果。
+    let after = list_files(dest_dir);
+    let new_files: Vec<&PathBuf> = after.iter().filter(|p| !before.contains(p)).collect();
+    match new_files.as_slice() {
+        [single] => Ok((*single).clone()),
+        [] => Err(BrowserError::CommandFailed(
+            "fetch_drive_file: wait --download succeeded but no new file appeared in download dir".into(),
+        )),
+        many => {
+            // 複数現れたら最新 mtime を採用 (.crdownload 等の中間ファイルは除外済みの想定)
+            let newest = many
+                .iter()
+                .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+                .expect("non-empty");
+            Ok((**newest).clone())
+        }
+    }
+}
+
+/// `.crdownload` (ダウンロード中の中間ファイル) を除いた dir 直下のファイル一覧。
+fn list_files(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .map(|it| {
+            it.filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.is_file())
+                .filter(|p| p.extension().map(|e| e != "crdownload").unwrap_or(true))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// list/search 共通: navigate → wait_fn(READY_JS) → eval(EXTRACT_JS) → get_url
 /// → extracted JSON を Vec<DriveItem> に変換。
+///
+/// sign-in リダイレクトを検出した場合は `ensure_google_session` で 1 回だけ
+/// 自動回復してリトライする (daemon 再起動後の session 全損対策)。
 async fn navigate_and_extract(binary: &Path, url: &str, what: &str) -> Result<Vec<DriveItem>, BrowserError> {
+    match navigate_and_extract_once(binary, url, what).await {
+        Err(BrowserError::CommandFailed(msg)) if msg.contains("sign-in") => {
+            tracing::info!(target: "imoocs_browser::drive", %what, "session expired; attempting recovery + retry");
+            crate::commands::auth_google::ensure_google_session(binary).await?;
+            navigate_and_extract_once(binary, url, what).await
+        }
+        other => other,
+    }
+}
+
+async fn navigate_and_extract_once(
+    binary: &Path,
+    url: &str,
+    what: &str,
+) -> Result<Vec<DriveItem>, BrowserError> {
     let agent = AgentBrowser::new(binary.to_path_buf(), SESSION_NAME);
     let mut builder = BatchBuilder::new();
     builder
@@ -154,14 +220,8 @@ async fn navigate_and_extract(binary: &Path, url: &str, what: &str) -> Result<Ve
     let value: Value = agent.run_raw(&["batch"], Some(json.as_bytes())).await?;
     let outcomes: BatchResponse = serde_json::from_value(value)?;
 
-    if let Some(failed) = outcomes.iter().find(|o| !o.success) {
-        return Err(BrowserError::CommandFailed(format!(
-            "{what}: step {:?} failed: {}",
-            failed.command,
-            failed.error.as_deref().unwrap_or("unknown")
-        )));
-    }
-
+    // sign-in リダイレクトは wait_fn timeout より先に判定したいので、
+    // step 失敗チェックの前に final_url を見る。
     let final_url = outcomes
         .last()
         .and_then(|o| o.result.as_ref())
@@ -171,6 +231,14 @@ async fn navigate_and_extract(binary: &Path, url: &str, what: &str) -> Result<Ve
     if final_url.contains("accounts.google.com") {
         return Err(BrowserError::CommandFailed(format!(
             "{what}: navigation redirected to Google sign-in; session expired"
+        )));
+    }
+
+    if let Some(failed) = outcomes.iter().find(|o| !o.success) {
+        return Err(BrowserError::CommandFailed(format!(
+            "{what}: step {:?} failed: {}",
+            failed.command,
+            failed.error.as_deref().unwrap_or("unknown")
         )));
     }
 

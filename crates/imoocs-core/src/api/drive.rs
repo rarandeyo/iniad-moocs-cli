@@ -14,7 +14,7 @@
 //! 401 が頻発するため Phase D-2 で全削除した。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use tracing::debug;
@@ -77,14 +77,13 @@ pub async fn search_drive_folders(_session: &Session, name: &str, exact: bool) -
     })
 }
 
-/// Phase D-2 暫定: agent-browser の `wait --download` は Chrome のデフォルト download
-/// directory (典型的に `~/Downloads`) に保存し、指定 path には書かない挙動だった
-/// (実機 spike で確定)。daemon 起動時に `AGENT_BROWSER_DOWNLOAD_PATH` を渡せば任意の
-/// directory に向けられるが、daemon の再起動が必要で挙動が安定しない。
+/// Phase D-2.x: `drive.usercontent.google.com/download` を agent-browser daemon で
+/// navigate してダウンロードする。daemon は `AGENT_BROWSER_DOWNLOAD_PATH` を効かせる
+/// ために close → 再起動され、session は auth-vault profile + SAML chain で自動回復
+/// する (imoocs_browser::commands::drive::fetch_drive_file 参照)。
 ///
-/// 当面はユーザに `imoocs open https://drive.google.com/file/d/<id>/view` で
-/// ブラウザを開いてもらう運用に倒し、fetch は明確にエラーで案内する。
-/// 完全な解決は Phase D-2.x で daemon spawn を制御する別経路として扱う。
+/// ダウンロードは `<cache>/drive/<fileId>/` 配下に元の filename で保存され、
+/// 24h TTL でキャッシュされる。
 pub async fn fetch_drive_file(
     _session: &Session,
     paths: &Paths,
@@ -98,10 +97,81 @@ pub async fn fetch_drive_file(
             return Ok(hit);
         }
     }
-    Err(ImoocsError::Validation(format!(
-        "drive fetch は Phase D-2 移行中で一時無効化されています。\n\
-         代替: ブラウザで開く → `imoocs open https://drive.google.com/file/d/{file_id}/view`"
-    )))
+
+    let binary = super::agent_binary()?;
+    // fileId ごとの subdirectory に落とす (新規ファイル検出を確実にするため毎回空にする)
+    let dl_dir = paths.drive_dir().join(file_id);
+    let _ = fs::remove_dir_all(&dl_dir);
+    fs::create_dir_all(&dl_dir)?;
+
+    let saved = imoocs_browser::commands::drive::fetch_drive_file(&binary, file_id, &dl_dir)
+        .await
+        .map_err(super::map_browser_err)?;
+
+    let size = fs::metadata(&saved)?.len();
+    let filename = saved
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| format!("{file_id}.bin"));
+    let mime = mime_from_extension(&filename);
+    let fetched_at = now_rfc3339();
+    let meta = DriveCacheMeta {
+        filename: filename.clone(),
+        mime: mime.clone(),
+        size_bytes: size,
+        fetched_at: fetched_at.clone(),
+    };
+    let meta_json = serde_json::to_string_pretty(&meta)?;
+    atomic_write(&drive_meta_path(paths, file_id), meta_json.as_bytes())?;
+
+    Ok(DriveFileFetchResult {
+        file_id: file_id.to_string(),
+        filename,
+        mime,
+        local_path: saved,
+        size_bytes: size,
+        fetched_at,
+        from_cache: false,
+    })
+}
+
+/// filename の拡張子から MIME を推定する (ダウンロード経路では Content-Type が
+/// 取れないため)。未知の拡張子は None。
+fn mime_from_extension(filename: &str) -> Option<String> {
+    let ext = filename.rsplit('.').next()?.to_ascii_lowercase();
+    let mime = match ext.as_str() {
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "txt" => "text/plain",
+        "csv" => "text/csv",
+        "ipynb" | "json" => "application/json",
+        "html" | "htm" => "text/html",
+        "mp4" => "video/mp4",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _ => return None,
+    };
+    Some(mime.to_string())
+}
+
+/// `bytes` を `target` に atomic に書く: プロセスごとの tempfile に書いて、
+/// 成功時に rename する。
+fn atomic_write(target: &Path, bytes: &[u8]) -> Result<()> {
+    let name = target
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".tmp".to_string());
+    let tmp_path = target.with_file_name(format!("{name}.tmp.{}", std::process::id()));
+    fs::write(&tmp_path, bytes)?;
+    fs::rename(&tmp_path, target).map_err(|e| {
+        let _ = fs::remove_file(&tmp_path);
+        ImoocsError::Io(e)
+    })?;
+    Ok(())
 }
 
 // ─── private helpers ─────────────────────────────────────────────────────────
@@ -183,7 +253,7 @@ fn try_cache(paths: &Paths, file_id: &str) -> Result<Option<DriveFileFetchResult
         Some(m) => m,
         None => return Ok(None),
     };
-    let binary_path = paths.drive_dir().join(&meta.filename);
+    let binary_path = paths.drive_dir().join(file_id).join(&meta.filename);
     let binary_meta = match fs::metadata(&binary_path) {
         Ok(m) => m,
         Err(_) => return Ok(None),

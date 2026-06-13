@@ -19,6 +19,9 @@ use crate::error::BrowserError;
 pub struct AgentBrowser {
     binary: PathBuf,
     session_name: String,
+    /// spawn 時に子プロセスへ渡す追加環境変数。daemon 起動時にだけ効くものは
+    /// 事前に `close` してから使うこと (例: `AGENT_BROWSER_DOWNLOAD_PATH`)。
+    envs: Vec<(String, String)>,
 }
 
 impl AgentBrowser {
@@ -27,7 +30,14 @@ impl AgentBrowser {
         Self {
             binary,
             session_name: session_name.into(),
+            envs: Vec::new(),
         }
+    }
+
+    /// spawn 時に渡す環境変数を追加する (builder スタイル)。
+    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.envs.push((key.into(), value.into()));
+        self
     }
 
     /// 内部 build: `--session-name <name> --json` を頭に置いた `Command` を返す。
@@ -36,6 +46,9 @@ impl AgentBrowser {
         cmd.arg("--session-name")
             .arg(&self.session_name)
             .arg("--json");
+        for (k, v) in &self.envs {
+            cmd.env(k, v);
+        }
         // stdout/stderr は piped (envelope を JSON 取り回しするため)
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
