@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+## [v0.3.1]
+
+### Fixed
+
+- `imoocs setup` のテキスト表示で、すでに設定済みの項目（`already set to …`）が
+  `⚠` ではなく `✓` で表示されるように修正。
+
 ## [v0.3.0]
 
 サーバへの書き込みと Google 系の取得を [agent-browser](https://github.com/vercel-labs/agent-browser)

@@ -286,13 +286,11 @@ fn render_report(r: &SetupReport) -> String {
         let tag = format!("[{}/{}]", idx + 1, total);
         let (symbol, suffix) = match step.status.as_str() {
             "ok" => ("✓", step_ok_suffix(&step.step, &step.details)),
-            "skipped" => (
-                "⚠",
-                format!(
-                    "skipped: {}",
-                    step.details.get("reason").and_then(|v| v.as_str()).unwrap_or("")
-                ),
-            ),
+            "skipped" => {
+                let reason = step.details.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+                let symbol = if reason.starts_with("already") { "✓" } else { "⚠" };
+                (symbol, format!("skipped: {reason}"))
+            }
             _ => ("✗", String::new()),
         };
         if suffix.is_empty() {

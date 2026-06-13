@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "imoocs-browser"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1598,7 +1598,7 @@ dependencies = [
 
 [[package]]
 name = "imoocs-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "imoocs-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1665,7 +1665,7 @@ dependencies = [
 
 [[package]]
 name = "imoocs-types"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "secrecy",
  "serde",
